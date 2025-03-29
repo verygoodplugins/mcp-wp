@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["-y", "@instawp/mcp-wp"],
       "env": {
-        "WORDPRESS_API_URL": "https://wp-url",
+        "WORDPRESS_API_URL": "https://wpsite.instawp.xyz",
         "WORDPRESS_USERNAME": "username",
         "WORDPRESS_PASSWORD": "Application Password"
       }

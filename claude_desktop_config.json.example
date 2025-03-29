@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "wordpress": {
+      "command": "npx",
+      "args": ["-y", "@instawp/mcp-wp"],
+      "env": {
+        "WORDPRESS_API_URL": "https://wp-url/wp-json/wp/v2",
+        "WORDPRESS_USERNAME": "username",
+        "WORDPRESS_PASSWORD": "Application Password"
+      }
+    }
+  }
+}

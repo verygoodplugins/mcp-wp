@@ -6,7 +6,7 @@
   "main": "./build/server.js",
   "exports": "./build/server.js",
   "bin": {
-    "mcp-wp": "./build/cli.js"
+    "mcp-wp": "./build/server.js"
   },
   "engines": {
     "node": ">=18.0.0"

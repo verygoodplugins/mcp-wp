@@ -19,8 +19,16 @@ export async function initWordPress() {
     throw new Error('WordPress API URL not found in environment variables');
   }
 
-  // Ensure the API URL ends with trailing slash
-  const baseURL = apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`;
+  // Ensure the API URL has the WordPress REST API path
+  let baseURL = apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`;
+  
+  // Add the WordPress REST API path if not already included
+  if (!baseURL.includes('/wp-json/wp/v2')) {
+    baseURL = baseURL + 'wp-json/wp/v2/';
+  } else if (!baseURL.endsWith('/')) {
+    // Ensure the URL ends with a trailing slash
+    baseURL = baseURL + '/';
+  }
 
   const config: AxiosRequestConfig = {
     baseURL,
@@ -75,36 +83,65 @@ export function logToFile(message: string) {
  * @param method HTTP method
  * @param endpoint API endpoint (relative to the baseURL)
  * @param data Request data
+ * @param options Additional request options
  * @returns Response data
  */
-export async function makeWordPressRequest(method: string, endpoint: string, data?: any) {
+export async function makeWordPressRequest(
+  method: string, 
+  endpoint: string, 
+  data?: any, 
+  options?: {
+    headers?: Record<string, string>;
+    isFormData?: boolean;
+    rawResponse?: boolean;
+  }
+) {
   if (!wpClient) {
     throw new Error('WordPress client not initialized');
   }
 
-  // Log data 
-  logToFile(`Data: ${JSON.stringify(data, null, 2)}`);
+  // Log data (skip for FormData which can't be stringified)
+  if (!options?.isFormData) {
+    logToFile(`Data: ${JSON.stringify(data, null, 2)}`);
+  } else {
+    logToFile('Request contains FormData (not shown in logs)');
+  }
   
   // Handle potential leading slash in endpoint
   const path = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
 
   try {
     const fullUrl = `${wpClient.defaults.baseURL}${path}`;
+    
+    // Prepare request config
+    const requestConfig: any = {
+      method,
+      url: path,
+      headers: options?.headers || {}
+    };
+    
+    // Handle different data formats based on method and options
+    if (method === 'GET') {
+      requestConfig.params = data;
+    } else if (options?.isFormData) {
+      // For FormData, pass it directly without stringifying
+      requestConfig.data = data;
+    } else if (method === 'POST') {
+      requestConfig.data = JSON.stringify(data);
+    } else {
+      requestConfig.data = data;
+    }
+    
     const requestLog = `
 REQUEST:
 URL: ${fullUrl}
 Method: ${method}
-Headers: ${JSON.stringify(wpClient.defaults.headers, null, 2)}
-Data: ${JSON.stringify(data, null, 2)}
+Headers: ${JSON.stringify({...wpClient.defaults.headers, ...requestConfig.headers}, null, 2)}
+Data: ${options?.isFormData ? '(FormData not shown)' : JSON.stringify(data, null, 2)}
 `;
     logToFile(requestLog);
 
-    const response = await wpClient.request({
-      method,
-      url: path,
-      params: method === 'GET' ? data : undefined,
-      data: method === 'POST' ? JSON.stringify(data) : method !== 'GET' ? data : undefined,
-    });
+    const response = await wpClient.request(requestConfig);
     
     const responseLog = `
 RESPONSE:
@@ -113,7 +150,7 @@ Data: ${JSON.stringify(response.data, null, 2)}
 `;
     logToFile(responseLog);
     
-    return response.data;
+    return options?.rawResponse ? response : response.data;
   } catch (error: any) {
     const errorLog = `
 ERROR:

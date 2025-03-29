@@ -99,20 +99,17 @@ export const mediaHandlers = {
         if (params.caption) form.append('caption', params.caption);
         if (params.description) form.append('description', params.description);
 
-        // Construct the media endpoint URL
-        if (!process.env.WORDPRESS_API_URL) {
-          throw new Error('WORDPRESS_API_URL environment variable is not set');
-        }
-        const mediaUrl = process.env.WORDPRESS_API_URL.endsWith('/')
-          ? process.env.WORDPRESS_API_URL + 'media'
-          : process.env.WORDPRESS_API_URL + '/media';
-
-        const response = await axios.post(mediaUrl, form, {
-          headers: {
-            ...form.getHeaders(),
-            'Authorization': `Basic ${Buffer.from(`${process.env.WORDPRESS_USERNAME}:${process.env.WORDPRESS_PASSWORD}`).toString('base64')}`
+        // Use the enhanced makeWordPressRequest function with FormData support
+        const response = await makeWordPressRequest(
+          'POST', 
+          'media', 
+          form, 
+          {
+            isFormData: true,
+            headers: form.getHeaders(),
+            rawResponse: true
           }
-        });
+        );
         return {
           toolResult: {
             content: [{ type: "text", text: JSON.stringify(response.data, null, 2) }]

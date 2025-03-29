@@ -75,7 +75,7 @@ npx -y @instawp/mcp-wp
 Make sure you have a `.env` file in your current directory with the following variables:
 
 ```env
-WORDPRESS_API_URL=https://your-wordpress-site.com/wp-json/wp/v2
+WORDPRESS_API_URL=https://your-wordpress-site.com
 WORDPRESS_USERNAME=wp_username
 WORDPRESS_PASSWORD=wp_app_password
 ```
@@ -109,7 +109,7 @@ WORDPRESS_PASSWORD=wp_app_password
     Create a `.env` file in the root of your project directory and add your WordPress API credentials:
 
     ```env
-    WORDPRESS_API_URL=https://your-wordpress-site.com/wp-json/wp/v2
+    WORDPRESS_API_URL=https://your-wordpress-site.com
     WORDPRESS_USERNAME=wp_username
     WORDPRESS_PASSWORD=wp_app_password
     ```

@@ -63,8 +63,8 @@ export async function initWordPress() {
 }
 
 // Configure logging
-const META_URL = import.meta.url.replace(/^file:/, '');
-const LOG_DIR = path.join(META_URL.split('/').slice(0, -1).join('/'), '../logs');
+const META_URL = import.meta.url.replace(/^file:\/\/\//, '');
+const LOG_DIR = path.join(path.dirname(META_URL), '../logs');
 const LOG_FILE = path.join(LOG_DIR, 'wordpress-api.log');
 
 // Ensure log directory exists

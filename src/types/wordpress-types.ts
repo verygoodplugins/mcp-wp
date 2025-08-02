@@ -127,3 +127,48 @@ export interface WPComment {
   meta: Record<string, any>[];
   _links: Record<string, any>;
 }
+
+// WordPress Custom Post Type
+export interface WPCustomPost extends WPContent {
+  // Custom post types can have any additional fields
+  [key: string]: any;
+}
+
+// WordPress Post Type definition
+export interface WPPostType {
+  slug: string;
+  name: string;
+  description: string;
+  hierarchical: boolean;
+  rest_base: string;
+  supports: string[];
+  taxonomies: string[];
+  labels: Record<string, string>;
+  _links: Record<string, any>;
+}
+
+// WordPress Taxonomy definition
+export interface WPTaxonomy {
+  slug: string;
+  name: string;
+  description: string;
+  types: string[];
+  hierarchical: boolean;
+  rest_base: string;
+  labels: Record<string, string>;
+  _links: Record<string, any>;
+}
+
+// WordPress Term (for taxonomies)
+export interface WPTerm {
+  id: number;
+  count: number;
+  description: string;
+  link: string;
+  name: string;
+  slug: string;
+  taxonomy: string;
+  parent: number;
+  meta: Record<string, any>[];
+  _links: Record<string, any>;
+}

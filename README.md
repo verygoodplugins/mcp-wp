@@ -18,18 +18,32 @@ This is a Model Context Protocol (MCP) server for WordPress, allowing you to int
 
 This server currently provides tools to interact with core WordPress data:
 
-*   **Posts:**
-    *   `list_posts`: List all posts (supports pagination and searching).
-    *   `get_post`: Retrieve a specific post by ID.
-    *   `create_post`: Create a new post.
-    *   `update_post`: Update an existing post.
-    *   `delete_post`: Delete a post.
-*   **Pages:**
-    *   `list_pages`: List all pages (supports pagination and filtering).
-    *   `get_page`: Retrieve a specific page by ID.
-    *   `create_page`: Create a new page.
-    *   `update_page`: Update an existing page.
-    *   `delete_page`: Delete a page.
+### **Unified Content Management** (8 tools)
+Handles ALL content types (posts, pages, custom post types) with a single set of intelligent tools:
+
+*   `list_content`: List any content type with filtering and pagination
+*   `get_content`: Get specific content by ID and type
+*   `create_content`: Create new content of any type
+*   `update_content`: Update existing content of any type
+*   `delete_content`: Delete content of any type
+*   `discover_content_types`: Find all available content types on your site
+*   `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL
+*   `get_content_by_slug`: Search by slug across all content types
+
+### **Unified Taxonomy Management** (8 tools)
+Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set of tools:
+
+*   `discover_taxonomies`: Find all available taxonomies on your site
+*   `list_terms`: List terms in any taxonomy
+*   `get_term`: Get specific term by ID
+*   `create_term`: Create new term in any taxonomy
+*   `update_term`: Update existing term
+*   `delete_term`: Delete term from any taxonomy
+*   `assign_terms_to_content`: Assign terms to any content type
+*   `get_content_terms`: Get all terms for any content
+
+### **Specialized Tools**
+
 *   **Media:**
     *   `list_media`: List all media items (supports pagination and searching).
     *   `get_media`: Retrieve a specific media item by ID.
@@ -42,12 +56,6 @@ This server currently provides tools to interact with core WordPress data:
     *   `create_user`: Create a new user.
     *   `update_user`: Update an existing user.
     *   `delete_user`: Delete a user.
-*   **Categories:**
-    *   `list_categories`: List all categories with filtering, sorting, and pagination options.
-    *   `get_category`: Retrieve a specific category by ID.
-    *   `create_category`: Create a new category.
-    *   `update_category`: Update an existing category.
-    *   `delete_category`: Delete a category.
 *   **Comments:**
     *   `list_comments`: List all comments with filtering, sorting, and pagination options.
     *   `get_comment`: Retrieve a specific comment by ID.
@@ -60,9 +68,40 @@ This server currently provides tools to interact with core WordPress data:
     *   `activate_plugin`: Activate a plugin.
     *   `deactivate_plugin`: Deactivate a plugin.
     *   `create_plugin`: Create a new plugin.
-    
+*   **Plugin Repository:**
+    *   `search_plugins`: Search for plugins in the WordPress.org repository.
+    *   `get_plugin_info`: Get detailed information about a plugin from the repository.
 
-More features and endpoints will be added in future updates.
+### **Key Advantages**
+
+#### Smart URL Resolution
+The `find_content_by_url` tool can:
+- Take any WordPress URL and automatically find the corresponding content
+- Detect content types from URL patterns (e.g., `/documentation/` → documentation custom post type)
+- Optionally update the content in a single operation
+- Works with posts, pages, and any custom post types
+
+#### Universal Content Operations
+All content operations use a single `content_type` parameter:
+```json
+{
+  "content_type": "post",        // for blog posts
+  "content_type": "page",        // for static pages  
+  "content_type": "product",     // for WooCommerce products
+  "content_type": "documentation" // for custom post types
+}
+```
+
+#### Universal Taxonomy Operations
+All taxonomy operations use a single `taxonomy` parameter:
+```json
+{
+  "taxonomy": "category",        // for categories
+  "taxonomy": "post_tag",        // for tags
+  "taxonomy": "product_category", // for WooCommerce
+  "taxonomy": "skill"            // for custom taxonomies
+}
+```
 
 ## Using with npx and .env file
 
@@ -154,26 +193,45 @@ npm run dev
 
 ## Project Overview
 
-### MCP WordPress Tools
+### Architecture
 
-Welcome to the MCP WordPress Tools project. This repository provides custom tools for managing WordPress functionalities, including media and plugins integration.
-
-### Folder Structure
+The server uses a **unified tool architecture** to reduce complexity:
 
 ```
-wp/
-├── README.md           # This documentation file
-└── src/
-    └── tools/
-         ├── media.ts   # Handles media operations
-         └── plugins.ts # Handles plugin operations
+src/
+├── server.ts                    # MCP server entry point
+├── wordpress.ts                 # WordPress REST API client
+├── cli.ts                      # CLI interface
+├── types/
+│   └── wordpress-types.ts      # TypeScript definitions
+└── tools/
+    ├── index.ts                # Tool aggregation
+    ├── unified-content.ts      # Universal content management (8 tools)
+    ├── unified-taxonomies.ts   # Universal taxonomy management (8 tools)
+    ├── media.ts               # Media management (~5 tools)
+    ├── users.ts               # User management (~5 tools)
+    ├── comments.ts            # Comment management (~5 tools)
+    ├── plugins.ts             # Plugin management (~5 tools)
+    └── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
 ```
+
+### Key Features
+
+- **Smart URL Resolution**: Automatically detect content types from URLs and find corresponding content
+- **Universal Content Management**: Single set of tools handles posts, pages, and custom post types
+- **Universal Taxonomy Management**: Single set of tools handles categories, tags, and custom taxonomies
+- **Type Safety**: Full TypeScript support with Zod schema validation
+- **Comprehensive Logging**: Detailed API request/response logging for debugging
+- **Error Handling**: Graceful error handling with informative messages
 
 ### Getting Started
 
-1. Explore the source code under the `src/tools/` directory to review how media and plugin functionalities are implemented.
-2. Update or extend functionalities as needed to integrate with your WordPress workflow.
+1. Clone the repository and install dependencies with `npm install`
+2. Create a `.env` file with your WordPress credentials
+3. Build the project with `npm run build`
+4. Configure Claude Desktop with the server
+5. Start using natural language to manage your WordPress site!
 
 ### Contribution
 
-Feel free to open issues or make pull requests to improve this project.
+Feel free to open issues or make pull requests to improve this project. Check out `CLAUDE.md` for detailed development guidelines.

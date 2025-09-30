@@ -7,9 +7,9 @@ import { mediaTools, mediaHandlers } from './media.js';
 import { userTools, userHandlers } from './users.js';
 import { pluginRepositoryTools, pluginRepositoryHandlers } from './plugin-repository.js';
 import { commentTools, commentHandlers } from './comments.js';
-import { sqlQueryTools, sqlQueryHandlers } from './sql-query.js';
+import { siteManagementTools, siteManagementHandlers } from './site-management.js';
 
-// Combine all tools - significantly reduced from ~65 to ~39 tools
+// Combine all tools - now significantly reduced from ~65 to ~38 tools
 export const allTools: Tool[] = [
   ...unifiedContentTools,        // 8 tools (replaces posts, pages, custom-post-types)
   ...unifiedTaxonomyTools,       // 8 tools (replaces categories, custom-taxonomies)
@@ -18,7 +18,7 @@ export const allTools: Tool[] = [
   ...userTools,                 // ~5 tools
   ...pluginRepositoryTools,     // ~2 tools
   ...commentTools,              // ~5 tools
-  ...sqlQueryTools              // 1 tool (database queries)
+  ...siteManagementTools        // 3 tools (multi-site support)
 ];
 
 // Combine all handlers
@@ -30,5 +30,5 @@ export const toolHandlers = {
   ...userHandlers,
   ...pluginRepositoryHandlers,
   ...commentHandlers,
-  ...sqlQueryHandlers
+  ...siteManagementHandlers
 };

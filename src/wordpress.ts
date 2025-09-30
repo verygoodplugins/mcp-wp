@@ -202,13 +202,33 @@ export async function searchWordPressPluginRepository(searchQuery: string, page:
     const requestLog = `
 WORDPRESS.ORG PLUGIN API REQUEST:
 URL: ${apiUrl}
-Data: ${JSON.stringify(requestData, null, 2)}
+Method: GET
+Params: ${JSON.stringify(requestData, null, 2)}
 `;
     logToFile(requestLog);
     
-    const response = await axios.post(apiUrl, requestData, {
-      headers: {
-        'Content-Type': 'application/json'
+    // WordPress.org Plugin API requires GET requests with serialized query parameters
+    const response = await axios.get(apiUrl, {
+      params: requestData,
+      paramsSerializer: (params) => {
+        // Serialize nested objects properly for WordPress.org API
+        // Format: action=query_plugins&request[search]=term&request[page]=1
+        const flatParams = new URLSearchParams();
+        flatParams.append('action', params.action);
+        
+        Object.keys(params.request).forEach(key => {
+          const value = params.request[key];
+          if (typeof value === 'object' && value !== null) {
+            // Handle nested objects like fields
+            Object.keys(value).forEach(subKey => {
+              flatParams.append(`request[${key}][${subKey}]`, String(value[subKey]));
+            });
+          } else {
+            flatParams.append(`request[${key}]`, String(value));
+          }
+        });
+        
+        return flatParams.toString();
       }
     });
     

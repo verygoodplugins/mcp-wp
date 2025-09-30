@@ -122,6 +122,7 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - **Plugins** (`plugins.ts`): Plugin activation/deactivation (~5 tools)
 - **Plugin Repository** (`plugin-repository.ts`): WordPress.org plugin search (~2 tools)
 - **SQL Queries** (`sql-query.ts`): Execute read-only database queries (1 tool, requires custom endpoint)
+  - **Note**: Uses `/wp-fusion/v1/query` namespace by default; consider using `/mcp/v1/query` if WP Fusion plugin is installed to avoid conflicts
 
 ### Key Features
 

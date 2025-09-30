@@ -9,7 +9,7 @@ import { pluginRepositoryTools, pluginRepositoryHandlers } from './plugin-reposi
 import { commentTools, commentHandlers } from './comments.js';
 import { sqlQueryTools, sqlQueryHandlers } from './sql-query.js';
 
-// Combine all tools - now significantly reduced from ~65 to ~36 tools
+// Combine all tools - significantly reduced from ~65 to ~39 tools
 export const allTools: Tool[] = [
   ...unifiedContentTools,        // 8 tools (replaces posts, pages, custom-post-types)
   ...unifiedTaxonomyTools,       // 8 tools (replaces categories, custom-taxonomies)

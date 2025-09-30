@@ -5,7 +5,7 @@ import { makeWordPressRequest } from '../wordpress.js';
 
 // Schema for SQL query execution
 const executeSqlQuerySchema = z.object({
-  query: z.string().describe('SQL query to execute (SELECT queries only for safety)')
+  query: z.string().describe('SQL query to execute (read-only queries: SELECT, WITH...SELECT, EXPLAIN only)')
 });
 
 // Type definition
@@ -28,15 +28,35 @@ export const sqlQueryTools: Tool[] = [
 export const sqlQueryHandlers = {
   execute_sql_query: async (params: ExecuteSqlQueryParams) => {
     try {
-      // Validate that it's a SELECT query for safety
-      const trimmedQuery = params.query.trim().toUpperCase();
+      const query = params.query.trim();
+      const trimmedQuery = query.toUpperCase();
       
-      if (!trimmedQuery.startsWith('SELECT')) {
+      // Validate that it's a read-only query
+      const isSelect = trimmedQuery.startsWith('SELECT');
+      const isWithSelect = trimmedQuery.startsWith('WITH ');
+      const isExplainSelect = trimmedQuery.startsWith('EXPLAIN SELECT') || trimmedQuery.startsWith('EXPLAIN ');
+      
+      if (!(isSelect || isWithSelect || isExplainSelect)) {
         return {
           toolResult: {
             content: [{
               type: 'text' as const,
-              text: 'Error: Only SELECT queries are allowed for safety reasons. Please use a SELECT statement.'
+              text: 'Error: Only read-only queries are allowed (SELECT, WITH...SELECT, EXPLAIN SELECT). Please use a valid read-only statement.'
+            }],
+            isError: true
+          }
+        };
+      }
+
+      // Disallow multiple statements (semicolon followed by non-whitespace)
+      // Remove quoted strings first to avoid false positives
+      const queryWithoutStrings = query.replace(/(['"]).*?\1/g, '');
+      if (/;\s*\S/.test(queryWithoutStrings)) {
+        return {
+          toolResult: {
+            content: [{
+              type: 'text' as const,
+              text: 'Error: Multiple SQL statements are not allowed. Please execute one query at a time.'
             }],
             isError: true
           }
@@ -57,12 +77,12 @@ export const sqlQueryHandlers = {
       ];
 
       for (const pattern of dangerousPatterns) {
-        if (pattern.test(params.query)) {
+        if (pattern.test(query)) {
           return {
             toolResult: {
               content: [{
                 type: 'text' as const,
-                text: `Error: Query contains potentially dangerous SQL statement. Only SELECT queries are allowed.`
+                text: `Error: Query contains potentially dangerous SQL statement. Only read-only queries are allowed.`
               }],
               isError: true
             }
@@ -70,18 +90,26 @@ export const sqlQueryHandlers = {
         }
       }
 
-      // Execute the query via the custom WP Fusion endpoint
+      // Execute the query via the custom endpoint
       const response = await makeWordPressRequest(
         'POST',
         '/wp-fusion/v1/query',
-        { query: params.query }
+        { query },
+        { headers: { 'Content-Type': 'application/json' } }
       );
+
+      // Handle large result sets
+      const text = JSON.stringify(response, null, 2);
+      const MAX_LENGTH = 50000;
+      const resultText = text.length > MAX_LENGTH 
+        ? text.slice(0, MAX_LENGTH) + '\n\n...(truncated - result too large)'
+        : text;
 
       return {
         toolResult: {
           content: [{
             type: 'text' as const,
-            text: JSON.stringify(response, null, 2)
+            text: resultText
           }]
         }
       };
@@ -93,44 +121,11 @@ export const sqlQueryHandlers = {
           toolResult: {
             content: [{
               type: 'text' as const,
-              text: `Error: SQL query endpoint not found. Please ensure the WP Fusion Database Query endpoint is enabled in your WordPress installation.
+              text: `Error: SQL query endpoint not found (HTTP 404). The custom REST API endpoint is not enabled on your WordPress site.
 
-To enable this feature, add the following code to your WordPress site (via a custom plugin or theme functions.php):
+To enable this feature, see the setup instructions in README.md under "Enabling SQL Query Tool (Optional)".
 
-add_action('rest_api_init', function() {
-    register_rest_route('wp-fusion/v1', '/query', array(
-        'methods' => 'POST',
-        'callback' => function($request) {
-            global $wpdb;
-            
-            $query = $request->get_param('query');
-            
-            // Additional security check
-            if (!current_user_can('manage_options')) {
-                return new WP_Error('unauthorized', 'Unauthorized', array('status' => 401));
-            }
-            
-            // Only allow SELECT queries
-            if (stripos(trim($query), 'SELECT') !== 0) {
-                return new WP_Error('invalid_query', 'Only SELECT queries allowed', array('status' => 400));
-            }
-            
-            $results = $wpdb->get_results($query, ARRAY_A);
-            
-            if ($wpdb->last_error) {
-                return new WP_Error('query_error', $wpdb->last_error, array('status' => 400));
-            }
-            
-            return array(
-                'results' => $results,
-                'num_rows' => count($results)
-            );
-        },
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ));
-});`
+Quick summary: Add a custom REST API endpoint at /wp-fusion/v1/query (or use a different namespace like /mcp/v1/query to avoid conflicts with WP Fusion plugin).`
             }],
             isError: true
           }

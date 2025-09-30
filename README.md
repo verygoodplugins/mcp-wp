@@ -69,10 +69,10 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
     *   `deactivate_plugin`: Deactivate a plugin.
     *   `create_plugin`: Create a new plugin.
 *   **Plugin Repository:**
-    *   `search_plugins`: Search for plugins in the WordPress.org repository.
-    *   `get_plugin_info`: Get detailed information about a plugin from the repository.
+  *   `search_plugins`: Search for plugins in the WordPress.org repository.
+  *   `get_plugin_info`: Get detailed information about a plugin from the repository.
 *   **Database Queries:**
-    *   `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
+  *   `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
 
 ### **Key Advantages**
 
@@ -125,7 +125,14 @@ WORDPRESS_PASSWORD=wp_app_password
 
 The `execute_sql_query` tool allows you to run read-only SQL queries against your WordPress database. This is an optional feature that requires adding a custom REST API endpoint to your WordPress site.
 
-**Security Note:** This tool only accepts SELECT queries for safety. Queries containing INSERT, UPDATE, DELETE, DROP, or other modifying statements will be rejected.
+**Security Notes:** 
+- This tool only accepts read-only queries (SELECT, WITH...SELECT, EXPLAIN) for safety
+- Queries containing INSERT, UPDATE, DELETE, DROP, or other modifying statements will be rejected
+- Multi-statement queries are blocked to prevent SQL injection
+- Queries and results are logged to `logs/wordpress-api.log` - avoid including sensitive data in queries
+- This tool requires admin-level permissions (`manage_options` capability)
+
+**Namespace Note:** The example below uses `/wp-fusion/v1/query` as the endpoint namespace. If you use the WP Fusion plugin and want to avoid potential conflicts, consider using a different namespace like `/mcp/v1/query` instead.
 
 To enable this feature, add the following code to your WordPress site (via a custom plugin or your theme's `functions.php`):
 
@@ -250,7 +257,7 @@ npm run dev
 
 The server uses a **unified tool architecture** to reduce complexity:
 
-```
+```text
 src/
 ├── server.ts                    # MCP server entry point
 ├── wordpress.ts                 # WordPress REST API client
@@ -265,7 +272,8 @@ src/
     ├── users.ts               # User management (~5 tools)
     ├── comments.ts            # Comment management (~5 tools)
     ├── plugins.ts             # Plugin management (~5 tools)
-    └── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
+    ├── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
+    └── sql-query.ts           # Database queries (1 tool)
 ```
 
 ### Key Features

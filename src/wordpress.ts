@@ -1,8 +1,6 @@
 // src/wordpress.ts
 import * as dotenv from 'dotenv';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
 
 // Global WordPress API client instance
 let wpClient: AxiosInstance;
@@ -62,20 +60,9 @@ export async function initWordPress() {
   }
 }
 
-// Configure logging
-const META_URL = import.meta.url.replace(/^file:\/\/\//, '');
-const LOG_DIR = path.join(path.dirname(META_URL), '../logs');
-const LOG_FILE = path.join(LOG_DIR, 'wordpress-api.log');
-
-// Ensure log directory exists
-if (!fs.existsSync(LOG_DIR)) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
-}
-
 export function logToFile(message: string) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  fs.appendFileSync(LOG_FILE, logMessage);
+  // Logging disabled
+  return;
 }
 
 /**

@@ -91,9 +91,11 @@ export const sqlQueryHandlers = {
       }
 
       // Execute the query via the custom endpoint
+      // Use environment variable or default to /mcp/v1/query
+      const sqlEndpoint = process.env.WORDPRESS_SQL_ENDPOINT || '/mcp/v1/query';
       const response = await makeWordPressRequest(
         'POST',
-        '/wp-fusion/v1/query',
+        sqlEndpoint,
         { query },
         { headers: { 'Content-Type': 'application/json' } }
       );
@@ -125,7 +127,8 @@ export const sqlQueryHandlers = {
 
 To enable this feature, see the setup instructions in README.md under "Enabling SQL Query Tool (Optional)".
 
-Quick summary: Add a custom REST API endpoint at /wp-fusion/v1/query (or use a different namespace like /mcp/v1/query to avoid conflicts with WP Fusion plugin).`
+Expected endpoint: ${process.env.WORDPRESS_SQL_ENDPOINT || '/mcp/v1/query'}
+You can customize this by setting the WORDPRESS_SQL_ENDPOINT environment variable.`
             }],
             isError: true
           }

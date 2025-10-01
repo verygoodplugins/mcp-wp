@@ -119,6 +119,9 @@ Make sure you have a `.env` file in your current directory with the following va
 WORDPRESS_API_URL=https://your-wordpress-site.com
 WORDPRESS_USERNAME=wp_username
 WORDPRESS_PASSWORD=wp_app_password
+
+# Optional: Custom SQL query endpoint (default: /mcp/v1/query)
+WORDPRESS_SQL_ENDPOINT=/mcp/v1/query
 ```
 
 ## Enabling SQL Query Tool (Optional)
@@ -132,13 +135,13 @@ The `execute_sql_query` tool allows you to run read-only SQL queries against you
 - Queries and results are logged to `logs/wordpress-api.log` - avoid including sensitive data in queries
 - This tool requires admin-level permissions (`manage_options` capability)
 
-**Namespace Note:** The example below uses `/wp-fusion/v1/query` as the endpoint namespace. If you use the WP Fusion plugin and want to avoid potential conflicts, consider using a different namespace like `/mcp/v1/query` instead.
+**Configuration:** By default, the tool expects the endpoint at `/mcp/v1/query`. You can customize this by setting the `WORDPRESS_SQL_ENDPOINT` environment variable (e.g., `WORDPRESS_SQL_ENDPOINT=/custom/v1/query`).
 
 To enable this feature, add the following code to your WordPress site (via a custom plugin or your theme's `functions.php`):
 
 ```php
 add_action('rest_api_init', function() {
-    register_rest_route('wp-fusion/v1', '/query', array(
+    register_rest_route('mcp/v1', '/query', array(
         'methods' => 'POST',
         'callback' => function($request) {
             global $wpdb;

@@ -3,6 +3,11 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+
+// ESM compatibility - __dirname is not available in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Function to check if required environment variables are set
 function checkEnvironmentVariables() {

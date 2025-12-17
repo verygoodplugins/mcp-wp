@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 // Global WordPress API client instance
 let wpClient: AxiosInstance;
@@ -62,9 +63,10 @@ export async function initWordPress() {
   }
 }
 
-// Configure logging
-const META_URL = import.meta.url.replace(/^file:\/\/\//, '');
-const LOG_DIR = path.join(path.dirname(META_URL), '../logs');
+// Configure logging - use fileURLToPath for cross-platform compatibility (Windows, Linux, macOS)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const LOG_DIR = path.resolve(__dirname, '../logs');
 const LOG_FILE = path.join(LOG_DIR, 'wordpress-api.log');
 
 // Ensure log directory exists

@@ -63,9 +63,9 @@ async function main() {
     const { logToFile } = await import('./wordpress.js');
     
     // Log startup info to stderr (MCP protocol uses stdout)
-    logToFile('Starting WordPress MCP server...');
-    logToFile(`Node version: ${process.version}`);
-    logToFile(`Working directory: ${process.cwd()}`);
+    logToFile('Starting WordPress MCP server...', 'info');
+    logToFile(`Node version: ${process.version}`, 'info');
+    logToFile(`Working directory: ${process.cwd()}`, 'info');
 
     try {
         logToFile('Initializing WordPress client...');
@@ -90,24 +90,25 @@ async function main() {
 }
 
 // Handle process signals and errors
+// IMPORTANT: MCP uses stdout for JSON-RPC — never use console.log here
 process.on('SIGTERM', () => {
-    console.log('Received SIGTERM signal, shutting down...');
+    process.stderr.write('[SHUTDOWN] Received SIGTERM, shutting down...\n');
     process.exit(0);
 });
 process.on('SIGINT', () => {
-    console.log('Received SIGINT signal, shutting down...');
+    process.stderr.write('[SHUTDOWN] Received SIGINT, shutting down...\n');
     process.exit(0);
 });
 process.on('uncaughtException', (error) => {
-    console.error('Uncaught exception:', error);
+    process.stderr.write(`[FATAL] Uncaught exception: ${error}\n`);
     process.exit(1);
 });
 process.on('unhandledRejection', (error) => {
-    console.error('Unhandled rejection:', error);
+    process.stderr.write(`[FATAL] Unhandled rejection: ${error}\n`);
     process.exit(1);
 });
 
 main().catch((error) => {
-    console.error('Startup error:', error);
+    process.stderr.write(`[FATAL] Startup error: ${error}\n`);
     process.exit(1);
 });

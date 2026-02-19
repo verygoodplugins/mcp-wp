@@ -160,8 +160,8 @@ WORDPRESS.ORG PLUGIN API REQUEST:
 URL: ${apiUrl}
 Data: ${JSON.stringify(requestData, null, 2)}
 `;
-    logToFile(requestLog);
-    
+    logToFile(requestLog, 'debug');
+
     const response = await axios.post(apiUrl, requestData, {
       headers: {
         'Content-Type': 'application/json'
@@ -174,8 +174,8 @@ Status: ${response.status}
 Info: ${JSON.stringify(response.data.info, null, 2)}
 Plugins Count: ${response.data.plugins?.length || 0}
 `;
-    logToFile(responseLog);
-    
+    logToFile(responseLog, 'debug');
+
     return response.data;
   } catch (error: any) {
     const errorLog = `
@@ -184,8 +184,7 @@ Message: ${error.message}
 Status: ${error.response?.status || 'N/A'}
 Data: ${JSON.stringify(error.response?.data || {}, null, 2)}
 `;
-    console.error(errorLog);
-    logToFile(errorLog);
+    logToFile(errorLog, 'error');
     throw error;
   }
 }

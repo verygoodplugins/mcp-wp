@@ -4,13 +4,17 @@ import { makeWordPressRequest, logToFile } from '../wordpress.js';
 import { z } from 'zod';
 import * as fs from 'fs-extra';
 import * as path from 'path';
+import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { marked } from 'marked';
 
-// Get cache directory
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = path.join(__dirname, '..', '..', '.cache');
-const CACHE_FILE = path.join(CACHE_DIR, 'content-types.json');
+// Resolve cache directory: prefer env override, fall back to OS temp dir
+const CACHE_DIR = process.env.UNIFIED_CONTENT_CACHE_DIR
+  ? path.resolve(process.env.UNIFIED_CONTENT_CACHE_DIR)
+  : path.join(os.tmpdir(), 'mcp-wp', '.cache');
+
+// Ensure the cache directory exists at module load time (best-effort)
+fs.ensureDir(CACHE_DIR).catch(() => {});
 
 // Cache for post types to reduce API calls
 let postTypesCache: any = null;

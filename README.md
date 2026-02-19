@@ -16,7 +16,16 @@ This is a Model Context Protocol (MCP) server for WordPress, allowing you to int
 
 ## Features
 
-This server currently provides tools to interact with core WordPress data:
+This server provides tools to interact with core WordPress data and supports **multi-site management** - manage multiple WordPress sites from a single MCP server instance.
+
+### **Multi-Site Management** (3 tools)
+Manage multiple WordPress sites from a single MCP server:
+
+*   `list_sites`: List all configured WordPress sites
+*   `get_site`: Get details about a specific site configuration
+*   `test_site`: Test connection to a specific WordPress site
+
+All content and taxonomy tools support an optional `site_id` parameter to target specific sites.
 
 ### **Unified Content Management** (8 tools)
 Handles ALL content types (posts, pages, custom post types) with a single set of intelligent tools:
@@ -69,10 +78,8 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
     *   `deactivate_plugin`: Deactivate a plugin.
     *   `create_plugin`: Create a new plugin.
 *   **Plugin Repository:**
-  *   `search_plugins`: Search for plugins in the WordPress.org repository.
-  *   `get_plugin_info`: Get detailed information about a plugin from the repository.
-*   **Database Queries:**
-  *   `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
+    *   `search_plugins`: Search for plugins in the WordPress.org repository.
+    *   `get_plugin_info`: Get detailed information about a plugin from the repository.
 
 ### **Key Advantages**
 
@@ -105,6 +112,55 @@ All taxonomy operations use a single `taxonomy` parameter:
 }
 ```
 
+## Configuration
+
+### Single Site Configuration
+
+For managing a single WordPress site, use the following environment variables:
+
+```env
+WORDPRESS_API_URL=https://your-wordpress-site.com
+WORDPRESS_USERNAME=wp_username
+WORDPRESS_PASSWORD=wp_app_password
+```
+
+### Multi-Site Configuration
+
+To manage multiple WordPress sites from a single MCP server, use numbered environment variables:
+
+```env
+# Site 1 (Production)
+WORDPRESS_1_URL=https://production-site.com
+WORDPRESS_1_USERNAME=admin
+WORDPRESS_1_PASSWORD=app_password_1
+WORDPRESS_1_ID=production
+WORDPRESS_1_DEFAULT=true
+WORDPRESS_1_ALIASES=prod,main
+
+# Site 2 (Staging)
+WORDPRESS_2_URL=https://staging-site.com
+WORDPRESS_2_USERNAME=admin
+WORDPRESS_2_PASSWORD=app_password_2
+WORDPRESS_2_ID=staging
+WORDPRESS_2_ALIASES=stage,dev
+
+# Site 3 (Development)
+WORDPRESS_3_URL=https://dev-site.com
+WORDPRESS_3_USERNAME=admin
+WORDPRESS_3_PASSWORD=app_password_3
+WORDPRESS_3_ID=development
+```
+
+**Multi-Site Configuration Options:**
+- `WORDPRESS_N_URL`: WordPress site URL (required)
+- `WORDPRESS_N_USERNAME`: WordPress username (required)
+- `WORDPRESS_N_PASSWORD`: WordPress application password (required)
+- `WORDPRESS_N_ID`: Site identifier (optional, defaults to `siteN`)
+- `WORDPRESS_N_DEFAULT`: Set to `true` to make this the default site (optional, first site is default)
+- `WORDPRESS_N_ALIASES`: Comma-separated aliases for site detection (optional)
+
+The server supports up to 10 sites. When using multi-site configuration, all tools accept an optional `site_id` parameter to target specific sites.
+
 ## Using with npx and .env file
 
 You can run this MCP server directly using npx without installing it globally:
@@ -113,74 +169,7 @@ You can run this MCP server directly using npx without installing it globally:
 npx -y @instawp/mcp-wp
 ```
 
-Make sure you have a `.env` file in your current directory with the following variables:
-
-```env
-WORDPRESS_API_URL=https://your-wordpress-site.com
-WORDPRESS_USERNAME=wp_username
-WORDPRESS_PASSWORD=wp_app_password
-
-# Optional: Custom SQL query endpoint (default: /mcp/v1/query)
-WORDPRESS_SQL_ENDPOINT=/mcp/v1/query
-```
-
-## Enabling SQL Query Tool (Optional)
-
-The `execute_sql_query` tool allows you to run read-only SQL queries against your WordPress database. This is an optional feature that requires adding a custom REST API endpoint to your WordPress site.
-
-**Security Notes:** 
-- This tool only accepts read-only queries (SELECT, WITH...SELECT, EXPLAIN) for safety
-- Queries containing INSERT, UPDATE, DELETE, DROP, or other modifying statements will be rejected
-- Multi-statement queries are blocked to prevent SQL injection
-- Queries and results are logged to `logs/wordpress-api.log` - avoid including sensitive data in queries
-- This tool requires admin-level permissions (`manage_options` capability)
-
-**Configuration:** By default, the tool expects the endpoint at `/mcp/v1/query`. You can customize this by setting the `WORDPRESS_SQL_ENDPOINT` environment variable (e.g., `WORDPRESS_SQL_ENDPOINT=/custom/v1/query`).
-
-To enable this feature, add the following code to your WordPress site (via a custom plugin or your theme's `functions.php`):
-
-```php
-add_action('rest_api_init', function() {
-    register_rest_route('mcp/v1', '/query', array(
-        'methods' => 'POST',
-        'callback' => function($request) {
-            global $wpdb;
-            
-            $query = $request->get_param('query');
-            
-            // Additional security check
-            if (!current_user_can('manage_options')) {
-                return new WP_Error('unauthorized', 'Unauthorized', array('status' => 401));
-            }
-            
-            // Only allow SELECT queries
-            if (stripos(trim($query), 'SELECT') !== 0) {
-                return new WP_Error('invalid_query', 'Only SELECT queries allowed', array('status' => 400));
-            }
-            
-            $results = $wpdb->get_results($query, ARRAY_A);
-            
-            if ($wpdb->last_error) {
-                return new WP_Error('query_error', $wpdb->last_error, array('status' => 400));
-            }
-            
-            return array(
-                'results' => $results,
-                'num_rows' => count($results)
-            );
-        },
-        'permission_callback' => function() {
-            return current_user_can('manage_options');
-        }
-    ));
-});
-```
-
-After adding this code, you can use the `execute_sql_query` tool to run queries like:
-
-```sql
-SELECT * FROM wp_posts WHERE post_type = 'post' AND post_status = 'publish' LIMIT 10
-```
+Make sure you have a `.env` file in your current directory with the configuration variables shown above.
 
 ## Development
 
@@ -208,12 +197,27 @@ SELECT * FROM wp_posts WHERE post_type = 'post' AND post_status = 'publish' LIMI
 
 3.  **Create a `.env` file:**
 
-    Create a `.env` file in the root of your project directory and add your WordPress API credentials:
-
+    Create a `.env` file in the root of your project directory and add your WordPress API credentials.
+    
+    For a single site:
     ```env
     WORDPRESS_API_URL=https://your-wordpress-site.com
     WORDPRESS_USERNAME=wp_username
     WORDPRESS_PASSWORD=wp_app_password
+    ```
+    
+    For multiple sites:
+    ```env
+    WORDPRESS_1_URL=https://site1.com
+    WORDPRESS_1_USERNAME=admin
+    WORDPRESS_1_PASSWORD=app_password_1
+    WORDPRESS_1_ID=site1
+    WORDPRESS_1_DEFAULT=true
+    
+    WORDPRESS_2_URL=https://site2.com
+    WORDPRESS_2_USERNAME=admin
+    WORDPRESS_2_PASSWORD=app_password_2
+    WORDPRESS_2_ID=site2
     ```
 
     Replace the placeholders with your actual values.
@@ -260,27 +264,30 @@ npm run dev
 
 The server uses a **unified tool architecture** to reduce complexity:
 
-```text
+```
 src/
 ├── server.ts                    # MCP server entry point
 ├── wordpress.ts                 # WordPress REST API client
 ├── cli.ts                      # CLI interface
+├── config/
+│   └── site-manager.ts         # Multi-site management
 ├── types/
 │   └── wordpress-types.ts      # TypeScript definitions
 └── tools/
     ├── index.ts                # Tool aggregation
+    ├── site-management.ts      # Site management (3 tools)
     ├── unified-content.ts      # Universal content management (8 tools)
     ├── unified-taxonomies.ts   # Universal taxonomy management (8 tools)
     ├── media.ts               # Media management (~5 tools)
     ├── users.ts               # User management (~5 tools)
     ├── comments.ts            # Comment management (~5 tools)
     ├── plugins.ts             # Plugin management (~5 tools)
-    ├── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
-    └── sql-query.ts           # Database queries (1 tool)
+    └── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
 ```
 
 ### Key Features
 
+- **Multi-Site Support**: Manage multiple WordPress sites from a single MCP server instance
 - **Smart URL Resolution**: Automatically detect content types from URLs and find corresponding content
 - **Universal Content Management**: Single set of tools handles posts, pages, and custom post types
 - **Universal Taxonomy Management**: Single set of tools handles categories, tags, and custom taxonomies

@@ -1,83 +1,25 @@
 // src/wordpress.ts
 import * as dotenv from 'dotenv';
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { siteManager } from './config/site-manager.js';
 
-// Global WordPress API client instance
+// Legacy global WordPress API client instance for backward compatibility
 let wpClient: AxiosInstance;
 
 /**
  * Initialize the WordPress API client with authentication
+ * Now uses SiteManager for multi-site support
  */
 export async function initWordPress() {
-  const apiUrl = process.env.WORDPRESS_API_URL;
-  const username = process.env.WORDPRESS_USERNAME;
-  const appPassword = process.env.WORDPRESS_PASSWORD;
-  
-  if (!apiUrl) {
-    throw new Error('WordPress API URL not found in environment variables');
-  }
-
-  // Ensure the API URL has the WordPress REST API path
-  let baseURL = apiUrl.endsWith('/') ? apiUrl : `${apiUrl}/`;
-  
-  // Add the WordPress REST API path if not already included
-  if (!baseURL.includes('/wp-json/wp/v2')) {
-    baseURL = baseURL + 'wp-json/wp/v2/';
-  } else if (!baseURL.endsWith('/')) {
-    // Ensure the URL ends with a trailing slash
-    baseURL = baseURL + '/';
-  }
-
-  const config: AxiosRequestConfig = {
-    baseURL,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  };
-
-  // Add authentication if credentials are provided
-  if (username && appPassword) {
-    logToFile('Adding authentication headers');
-    logToFile(`Username: ${username}`);
-    logToFile(`App Password: ${appPassword}`);
-    
-    const auth = Buffer.from(`${username}:${appPassword}`).toString('base64');
-    config.headers = {
-      ...config.headers,
-      'Authorization': `Basic ${auth}`
-    };
-  }
-
-  wpClient = axios.create(config);
-
-  // Verify connection to WordPress API
-  try {
-    await wpClient.get('');
-    logToFile('Successfully connected to WordPress API');
-  } catch (error: any) {
-    logToFile(`Failed to connect to WordPress API: ${error.message}`);
-    throw new Error(`Failed to connect to WordPress API: ${error.message}`);
-  }
-}
-
-// Configure logging - use fileURLToPath for cross-platform compatibility (Windows, Linux, macOS)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const LOG_DIR = path.resolve(__dirname, '../logs');
-const LOG_FILE = path.join(LOG_DIR, 'wordpress-api.log');
-
-// Ensure log directory exists
-if (!fs.existsSync(LOG_DIR)) {
-  fs.mkdirSync(LOG_DIR, { recursive: true });
+  // Initialize the default site client
+  const client = await siteManager.getClient();
+  wpClient = client;
+  logToFile('WordPress client initialized successfully via SiteManager');
 }
 
 export function logToFile(message: string) {
-  const timestamp = new Date().toISOString();
-  const logMessage = `[${timestamp}] ${message}\n`;
-  fs.appendFileSync(LOG_FILE, logMessage);
+  // Logging disabled
+  return;
 }
 
 /**
@@ -85,7 +27,7 @@ export function logToFile(message: string) {
  * @param method HTTP method
  * @param endpoint API endpoint (relative to the baseURL)
  * @param data Request data
- * @param options Additional request options
+ * @param options Additional request options including siteId for multi-site support
  * @returns Response data
  */
 export async function makeWordPressRequest(
@@ -96,11 +38,13 @@ export async function makeWordPressRequest(
     headers?: Record<string, string>;
     isFormData?: boolean;
     rawResponse?: boolean;
+    siteId?: string;
   }
 ) {
-  if (!wpClient) {
-    throw new Error('WordPress client not initialized');
-  }
+  // Get the appropriate client for the site
+  const client = options?.siteId 
+    ? await siteManager.getClient(options.siteId)
+    : (wpClient || await siteManager.getClient());
 
   // Log data (skip for FormData which can't be stringified)
   if (!options?.isFormData) {
@@ -113,7 +57,7 @@ export async function makeWordPressRequest(
   const path = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
 
   try {
-    const fullUrl = `${wpClient.defaults.baseURL}${path}`;
+    const fullUrl = `${client.defaults.baseURL}${path}`;
     
     // Prepare request config
     const requestConfig: any = {
@@ -138,12 +82,13 @@ export async function makeWordPressRequest(
 REQUEST:
 URL: ${fullUrl}
 Method: ${method}
-Headers: ${JSON.stringify({...wpClient.defaults.headers, ...requestConfig.headers}, null, 2)}
+Site: ${options?.siteId || 'default'}
+Headers: ${JSON.stringify({...client.defaults.headers, ...requestConfig.headers}, null, 2)}
 Data: ${options?.isFormData ? '(FormData not shown)' : JSON.stringify(data, null, 2)}
 `;
     logToFile(requestLog);
 
-    const response = await wpClient.request(requestConfig);
+    const response = await client.request(requestConfig);
     
     const responseLog = `
 RESPONSE:
@@ -203,33 +148,13 @@ export async function searchWordPressPluginRepository(searchQuery: string, page:
     const requestLog = `
 WORDPRESS.ORG PLUGIN API REQUEST:
 URL: ${apiUrl}
-Method: GET
-Params: ${JSON.stringify(requestData, null, 2)}
+Data: ${JSON.stringify(requestData, null, 2)}
 `;
     logToFile(requestLog);
     
-    // WordPress.org Plugin API requires GET requests with serialized query parameters
-    const response = await axios.get(apiUrl, {
-      params: requestData,
-      paramsSerializer: (params) => {
-        // Serialize nested objects properly for WordPress.org API
-        // Format: action=query_plugins&request[search]=term&request[page]=1
-        const flatParams = new URLSearchParams();
-        flatParams.append('action', params.action);
-        
-        Object.keys(params.request).forEach(key => {
-          const value = params.request[key];
-          if (typeof value === 'object' && value !== null) {
-            // Handle nested objects like fields
-            Object.keys(value).forEach(subKey => {
-              flatParams.append(`request[${key}][${subKey}]`, String(value[subKey]));
-            });
-          } else {
-            flatParams.append(`request[${key}]`, String(value));
-          }
-        });
-        
-        return flatParams.toString();
+    const response = await axios.post(apiUrl, requestData, {
+      headers: {
+        'Content-Type': 'application/json'
       }
     });
     

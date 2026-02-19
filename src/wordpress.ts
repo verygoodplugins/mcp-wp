@@ -160,7 +160,6 @@ Message: ${error.message}
 Status: ${error.response?.status || 'N/A'}
 Data: ${JSON.stringify(error.response?.data || {}, null, 2)}
 `;
-    console.error(errorLog);
     logToFile(errorLog);
     throw error;
   }
@@ -250,7 +249,6 @@ Message: ${error.message}
 Status: ${error.response?.status || 'N/A'}
 Data: ${JSON.stringify(error.response?.data || {}, null, 2)}
 `;
-    console.error(errorLog);
     logToFile(errorLog);
     throw error;
   }

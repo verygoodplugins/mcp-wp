@@ -61,7 +61,11 @@ for (const tool of allTools) {
 
 async function main() {
     const { logToFile } = await import('./wordpress.js');
+    
+    // Log startup info to stderr (MCP protocol uses stdout)
     logToFile('Starting WordPress MCP server...');
+    logToFile(`Node version: ${process.version}`);
+    logToFile(`Working directory: ${process.cwd()}`);
 
     try {
         logToFile('Initializing WordPress client...');
@@ -73,8 +77,14 @@ async function main() {
         const transport = new StdioServerTransport();
         await server.connect(transport);
         logToFile('WordPress MCP Server running on stdio');
-    } catch (error) {
-        logToFile(`Failed to initialize server: ${error}`);
+        logToFile(`Registered ${allTools.length} tools`);
+    } catch (error: any) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        logToFile(`Failed to initialize server: ${errorMessage}`);
+        if (errorStack) {
+            logToFile(`Stack trace: ${errorStack}`);
+        }
         process.exit(1);
     }
 }

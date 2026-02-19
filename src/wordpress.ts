@@ -14,12 +14,22 @@ export async function initWordPress() {
   // Initialize the default site client
   const client = await siteManager.getClient();
   wpClient = client;
-  logToFile('WordPress client initialized successfully via SiteManager');
+  logToFile('WordPress client initialized successfully via SiteManager', 'info');
 }
 
-export function logToFile(message: string) {
-  // Logging disabled
-  return;
+export function logToFile(message: string, level: 'debug' | 'info' | 'error' = 'debug') {
+  // Enable logging to stderr (MCP uses stdout for protocol, so we use stderr for logs)
+  // Can be disabled by setting DISABLE_LOGGING=true or controlled via LOG_LEVEL
+  if (process.env.DISABLE_LOGGING === 'true') return;
+
+  const logLevel = process.env.WORDPRESS_LOG_LEVEL || 'error'; // Default to error only
+  const levels = { debug: 0, info: 1, error: 2 };
+
+  if (levels[level] >= levels[logLevel as keyof typeof levels]) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}\n`;
+    process.stderr.write(logMessage);
+  }
 }
 
 /**
@@ -48,9 +58,9 @@ export async function makeWordPressRequest(
 
   // Log data (skip for FormData which can't be stringified)
   if (!options?.isFormData) {
-    logToFile(`Data: ${JSON.stringify(data, null, 2)}`);
+    logToFile(`Data: ${JSON.stringify(data, null, 2)}`, 'debug');
   } else {
-    logToFile('Request contains FormData (not shown in logs)');
+    logToFile('Request contains FormData (not shown in logs)', 'debug');
   }
   
   // Handle potential leading slash in endpoint
@@ -86,16 +96,16 @@ Site: ${options?.siteId || 'default'}
 Headers: ${JSON.stringify({...client.defaults.headers, ...requestConfig.headers}, null, 2)}
 Data: ${options?.isFormData ? '(FormData not shown)' : JSON.stringify(data, null, 2)}
 `;
-    logToFile(requestLog);
+    logToFile(requestLog, 'debug');
 
     const response = await client.request(requestConfig);
-    
+
     const responseLog = `
 RESPONSE:
 Status: ${response.status}
 Data: ${JSON.stringify(response.data, null, 2)}
 `;
-    logToFile(responseLog);
+    logToFile(responseLog, 'debug');
     
     return options?.rawResponse ? response : response.data;
   } catch (error: any) {
@@ -105,8 +115,7 @@ Message: ${error.message}
 Status: ${error.response?.status || 'N/A'}
 Data: ${JSON.stringify(error.response?.data || {}, null, 2)}
 `;
-    console.error(errorLog);
-    logToFile(errorLog);
+    logToFile(errorLog, 'error');
     throw error;
   }
 }

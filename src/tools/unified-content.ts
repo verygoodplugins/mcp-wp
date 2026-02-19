@@ -422,7 +422,7 @@ const listContentSchema = z.object({
 
 const getContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)")
 });
 
@@ -456,7 +456,7 @@ const createContentSchema = z.object({
 
 const updateContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   title: z.string().optional().describe("Content title"),
   content: z.string().optional().describe(
@@ -485,7 +485,7 @@ const updateContentSchema = z.object({
 
 const deleteContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   force: z.boolean().optional().describe("Whether to bypass trash and force deletion")
 });

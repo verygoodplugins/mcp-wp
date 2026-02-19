@@ -6,14 +6,14 @@ import { z } from 'zod';
 
 // Schema for listing comments
 const listCommentsSchema = z.object({
-  page: z.number().optional().describe("Page number (default 1)"),
-  per_page: z.number().min(1).max(100).optional().describe("Items per page (default 10, max 100)"),
+  page: z.coerce.number().optional().describe("Page number (default 1)"),
+  per_page: z.coerce.number().min(1).max(100).optional().describe("Items per page (default 10, max 100)"),
   search: z.string().optional().describe("Search term for comment content"),
   after: z.string().optional().describe("ISO8601 date string to get comments published after this date"),
-  author: z.union([z.number(), z.array(z.number())]).optional().describe("Author ID or array of IDs"),
+  author: z.union([z.coerce.number(), z.array(z.coerce.number())]).optional().describe("Author ID or array of IDs"),
   author_email: z.string().email().optional().describe("Author email address"),
-  author_exclude: z.array(z.number()).optional().describe("Array of author IDs to exclude"),
-  post: z.number().optional().describe("Post ID to retrieve comments for"),
+  author_exclude: z.array(z.coerce.number()).optional().describe("Array of author IDs to exclude"),
+  post: z.coerce.number().optional().describe("Post ID to retrieve comments for"),
   status: z.enum(['approve', 'hold', 'spam', 'trash']).optional().describe("Comment status"),
   type: z.string().optional().describe("Comment type"),
   orderby: z.enum(['date', 'date_gmt', 'id', 'include', 'post', 'parent', 'type']).optional().describe("Sort comments by parameter"),
@@ -22,37 +22,37 @@ const listCommentsSchema = z.object({
 
 // Schema for getting a single comment
 const getCommentSchema = z.object({
-  id: z.number().describe("Comment ID")
+  id: z.coerce.number().describe("Comment ID")
 }).strict();
 
 // Schema for creating a comment
 const createCommentSchema = z.object({
-  post: z.number().describe("The ID of the post object the comment is for"),
-  author: z.number().optional().describe("The ID of the user object, if the author is a registered user"),
+  post: z.coerce.number().describe("The ID of the post object the comment is for"),
+  author: z.coerce.number().optional().describe("The ID of the user object, if the author is a registered user"),
   author_name: z.string().optional().describe("Display name for the comment author"),
   author_email: z.string().email().optional().describe("Email address for the comment author"),
   author_url: z.string().url().optional().describe("URL for the comment author"),
   content: z.string().describe("The content of the comment"),
-  parent: z.number().optional().describe("The ID of the parent comment"),
+  parent: z.coerce.number().optional().describe("The ID of the parent comment"),
   status: z.enum(['approve', 'hold']).optional().describe("State of the comment")
 }).strict();
 
 // Schema for updating a comment
 const updateCommentSchema = z.object({
-  id: z.number().describe("Comment ID"),
-  post: z.number().optional().describe("The ID of the post object the comment is for"),
-  author: z.number().optional().describe("The ID of the user object, if the author is a registered user"),
+  id: z.coerce.number().describe("Comment ID"),
+  post: z.coerce.number().optional().describe("The ID of the post object the comment is for"),
+  author: z.coerce.number().optional().describe("The ID of the user object, if the author is a registered user"),
   author_name: z.string().optional().describe("Display name for the comment author"),
   author_email: z.string().email().optional().describe("Email address for the comment author"),
   author_url: z.string().url().optional().describe("URL for the comment author"),
   content: z.string().optional().describe("The content of the comment"),
-  parent: z.number().optional().describe("The ID of the parent comment"),
+  parent: z.coerce.number().optional().describe("The ID of the parent comment"),
   status: z.enum(['approve', 'hold', 'spam', 'trash']).optional().describe("State of the comment")
 }).strict();
 
 // Schema for deleting a comment
 const deleteCommentSchema = z.object({
-  id: z.number().describe("Comment ID"),
+  id: z.coerce.number().describe("Comment ID"),
   force: z.boolean().optional().describe("Whether to bypass trash and force deletion")
 }).strict();
 

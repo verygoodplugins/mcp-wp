@@ -21,7 +21,7 @@ const createMediaSchema = z.object({
 
 // Schema for editing an existing media item
 const editMediaSchema = z.object({
-  id: z.number().describe("Media ID to edit"),
+  id: z.coerce.number().describe("Media ID to edit"),
   title: z.string().optional().describe("Media title"),
   alt_text: z.string().optional().describe("Alternate text for the media"),
   caption: z.string().optional().describe("Caption of the media"),
@@ -30,7 +30,7 @@ const editMediaSchema = z.object({
 
 // Schema for deleting a media item
 const deleteMediaSchema = z.object({
-  id: z.number().describe("Media ID to delete"),
+  id: z.coerce.number().describe("Media ID to delete"),
   force: z.boolean().optional().describe("Force deletion bypassing trash")
 }).strict();
 

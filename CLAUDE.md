@@ -151,7 +151,7 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - `test_site` - Test connection to a WordPress site
 
 #### **Other Specialized Tools**
-- **Media** (`media.ts`): Media library management (~5 tools)
+- **Media** (`media.ts`): Media library management (5 canonical tools plus legacy `edit_media` alias)
 - **Users** (`users.ts`): User management (~5 tools)
 - **Comments** (`comments.ts`): Comment management (~5 tools)
 - **Plugins** (`plugins.ts`): Plugin activation/deactivation (~5 tools)

@@ -128,6 +128,46 @@ export interface WPComment {
   _links: Record<string, any>;
 }
 
+// WordPress Media type
+export interface WPMedia {
+  id: number;
+  date: string | null;
+  date_gmt: string | null;
+  guid: {
+    rendered: string;
+  };
+  modified: string;
+  modified_gmt: string;
+  slug: string;
+  status: string;
+  type: string;
+  link: string;
+  title: {
+    rendered: string;
+  };
+  author: number;
+  comment_status: string;
+  ping_status: string;
+  template: string;
+  meta: Record<string, any>;
+  alt_text: string;
+  caption: {
+    rendered: string;
+    raw?: string;
+  };
+  description: {
+    rendered: string;
+    raw?: string;
+  };
+  media_type: string;
+  mime_type: string;
+  media_details: Record<string, any>;
+  post: number;
+  source_url: string;
+  missing_image_sizes?: string[];
+  _links: Record<string, any>;
+}
+
 // WordPress Custom Post Type
 export interface WPCustomPost extends WPContent {
   // Custom post types can have any additional fields

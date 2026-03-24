@@ -59,9 +59,10 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - **Media:**
   - `list_media`: List all media items (supports pagination and searching).
   - `get_media`: Retrieve a specific media item by ID.
-  - `create_media`: Create a new media item from a URL.
+  - `create_media`: Create a new media item from a URL or local file path.
   - `update_media`: Update an existing media item.
   - `delete_media`: Delete a media item.
+  - `edit_media`: Legacy alias for `update_media` kept for backward compatibility.
 - **Users:**
   - `list_users`: List all users with filtering, sorting, and pagination options.
   - `get_user`: Retrieve a specific user by ID.
@@ -87,6 +88,39 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
 
 ### **Key Advantages**
+
+#### Media Upload Workflows
+
+Upload a local screenshot from the same machine running the MCP server:
+
+```json
+{
+  "file_path": "./screenshots/homepage.png",
+  "title": "Homepage Screenshot",
+  "alt_text": "Homepage screenshot showing the hero section"
+}
+```
+
+Upload media from a remote URL:
+
+```json
+{
+  "source_url": "https://example.com/assets/hero-image.png",
+  "title": "Hero Image",
+  "caption": "Imported from the design system"
+}
+```
+
+Use the returned media ID as featured media on new content:
+
+```json
+{
+  "content_type": "post",
+  "title": "Release Notes",
+  "content": "<p>Launch summary...</p>",
+  "featured_media": 123
+}
+```
 
 #### Smart URL Resolution
 
@@ -360,7 +394,7 @@ src/
     ├── site-management.ts      # Site management (3 tools)
     ├── unified-content.ts      # Universal content management (8 tools)
     ├── unified-taxonomies.ts   # Universal taxonomy management (8 tools)
-    ├── media.ts               # Media management (~5 tools)
+    ├── media.ts               # Media management (5 canonical tools + edit_media alias)
     ├── users.ts               # User management (~5 tools)
     ├── comments.ts            # Comment management (~5 tools)
     ├── plugins.ts             # Plugin management (~5 tools)

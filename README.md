@@ -35,10 +35,10 @@ Handles ALL content types (posts, pages, custom post types) with a single set of
 - `list_content`: List any content type with filtering and pagination
 - `get_content`: Get specific content by ID and type
 - `create_content`: Create new content of any type
-- `update_content`: Update existing content of any type
+- `update_content`: Update existing content of any type, including targeted partial edits
 - `delete_content`: Delete content of any type
 - `discover_content_types`: Find all available content types on your site
-- `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL
+- `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL, including targeted partial edits
 - `get_content_by_slug`: Search by slug across all content types
 
 ### **Unified Taxonomy Management** (8 tools)
@@ -143,6 +143,45 @@ All content operations use a single `content_type` parameter:
   "content_type": "documentation" // for custom post types
 }
 ```
+
+#### Targeted Content Edits
+
+`update_content` and `find_content_by_url.update_fields` can patch the existing raw WordPress content without resending the full document.
+
+Append a short release note to the end of a post:
+
+```json
+{
+  "content_type": "post",
+  "id": 42,
+  "content_edit": {
+    "operation": "append",
+    "value": "\n<p>Update: Early access is now open.</p>",
+    "content_format": "html"
+  }
+}
+```
+
+Replace a unique HTML fragment or marker comment in place:
+
+```json
+{
+  "content_type": "page",
+  "id": 7,
+  "content_edit": {
+    "operation": "replace",
+    "target_text": "<!-- pricing-card -->\n<p>Old price</p>\n<!-- /pricing-card -->",
+    "value": "<!-- pricing-card -->\n<p>New price</p>\n<!-- /pricing-card -->",
+    "content_format": "html"
+  }
+}
+```
+
+Notes:
+
+- `target_text` matches the stored raw WordPress content exactly.
+- If the same `target_text` appears multiple times, pass `occurrence` to choose the 1-based match.
+- For posts stored as Gutenberg blocks, set `content_edit.convert_to_blocks` when inserting Markdown or HTML that should become blocks.
 
 #### Universal Taxonomy Operations
 

@@ -148,6 +148,16 @@ All content operations use a single `content_type` parameter:
 
 `update_content` and `find_content_by_url.update_fields` can patch the existing raw WordPress content without resending the full document.
 
+To make exact matching easier, `get_content` and `find_content_by_url` both accept `include_raw_content: true`. When enabled, the response is fetched with WordPress edit context and includes a top-level `content_raw` field that matches what `content_edit.target_text` needs.
+
+```json
+{
+  "content_type": "page",
+  "id": 7,
+  "include_raw_content": true
+}
+```
+
 Append a short release note to the end of a post:
 
 ```json
@@ -179,6 +189,7 @@ Replace a unique HTML fragment or marker comment in place:
 
 Notes:
 
+- Rendered WordPress HTML can differ from `content.raw` because entities may be escaped and markup may be expanded, so use `include_raw_content` when you need an exact `target_text`.
 - `target_text` matches the stored raw WordPress content exactly.
 - If the same `target_text` appears multiple times, pass `occurrence` to choose the 1-based match.
 - For posts stored as Gutenberg blocks, set `content_edit.convert_to_blocks` when inserting Markdown or HTML that should become blocks.

@@ -211,6 +211,35 @@ async function findContentAcrossTypes(slug: string, contentTypes?: string[], sit
 // Content format types
 type ContentFormat = 'auto' | 'markdown' | 'html' | 'blocks';
 type DetectedFormat = 'blocks' | 'html' | 'markdown' | 'text';
+const CONTENT_EDIT_OPERATIONS = ['append', 'prepend', 'insert_before', 'insert_after', 'replace'] as const;
+type ContentEditOperation = typeof CONTENT_EDIT_OPERATIONS[number];
+type ContentEditParams = {
+  operation: ContentEditOperation;
+  value: string;
+  target_text?: string;
+  occurrence?: number;
+  content_format?: ContentFormat;
+  convert_to_blocks?: boolean;
+};
+type ContentUpdateInput = {
+  title?: string;
+  content?: string;
+  content_format?: ContentFormat;
+  convert_to_blocks?: boolean;
+  content_edit?: ContentEditParams;
+  status?: string;
+  excerpt?: string;
+  slug?: string;
+  author?: number;
+  parent?: number;
+  categories?: number[];
+  tags?: number[];
+  featured_media?: number;
+  format?: string;
+  menu_order?: number;
+  meta?: Record<string, any>;
+  custom_fields?: Record<string, any>;
+};
 
 /**
  * Detects the format of content based on its structure
@@ -405,6 +434,162 @@ async function processContent(
   return htmlContent;
 }
 
+function validateContentEdit(edit: ContentEditParams) {
+  const targetedOperations = new Set<ContentEditOperation>(['insert_before', 'insert_after', 'replace']);
+
+  if (targetedOperations.has(edit.operation) && !edit.target_text) {
+    throw new Error(`content_edit.target_text is required for ${edit.operation}`);
+  }
+}
+
+function getTargetMatchIndex(content: string, targetText: string, occurrence?: number): number {
+  const matches: number[] = [];
+  let fromIndex = 0;
+
+  while (true) {
+    const matchIndex = content.indexOf(targetText, fromIndex);
+    if (matchIndex === -1) {
+      break;
+    }
+
+    matches.push(matchIndex);
+    fromIndex = matchIndex + targetText.length;
+  }
+
+  if (matches.length === 0) {
+    throw new Error('content_edit.target_text was not found in the existing content');
+  }
+
+  if (occurrence === undefined) {
+    if (matches.length > 1) {
+      throw new Error(`content_edit.target_text matched ${matches.length} locations. Provide content_edit.occurrence to disambiguate.`);
+    }
+    return matches[0];
+  }
+
+  if (!Number.isInteger(occurrence) || occurrence < 1) {
+    throw new Error('content_edit.occurrence must be a positive integer');
+  }
+
+  const resolvedIndex = matches[occurrence - 1];
+  if (resolvedIndex === undefined) {
+    throw new Error(`content_edit.occurrence ${occurrence} is out of range for ${matches.length} matches`);
+  }
+
+  return resolvedIndex;
+}
+
+function applyContentEdit(existingContent: string, edit: ContentEditParams): string {
+  validateContentEdit(edit);
+
+  switch (edit.operation) {
+    case 'append':
+      return `${existingContent}${edit.value}`;
+    case 'prepend':
+      return `${edit.value}${existingContent}`;
+    case 'insert_before': {
+      const targetText = edit.target_text as string;
+      const targetIndex = getTargetMatchIndex(existingContent, targetText, edit.occurrence);
+      return `${existingContent.slice(0, targetIndex)}${edit.value}${existingContent.slice(targetIndex)}`;
+    }
+    case 'insert_after': {
+      const targetText = edit.target_text as string;
+      const targetIndex = getTargetMatchIndex(existingContent, targetText, edit.occurrence) + targetText.length;
+      return `${existingContent.slice(0, targetIndex)}${edit.value}${existingContent.slice(targetIndex)}`;
+    }
+    case 'replace': {
+      const targetText = edit.target_text as string;
+      const targetIndex = getTargetMatchIndex(existingContent, targetText, edit.occurrence);
+      return `${existingContent.slice(0, targetIndex)}${edit.value}${existingContent.slice(targetIndex + targetText.length)}`;
+    }
+  }
+}
+
+async function getEditableRawContent(endpoint: string, id: number, siteId?: string): Promise<string> {
+  const response = await makeWordPressRequest(
+    'GET',
+    `${endpoint}/${id}`,
+    { context: 'edit' },
+    { siteId }
+  );
+
+  const rawContent = response?.content?.raw;
+  if (typeof rawContent !== 'string') {
+    throw new Error('Partial content edits require WordPress edit access and a REST response that includes content.raw');
+  }
+
+  return rawContent;
+}
+
+async function resolveUpdatedContent(
+  input: ContentUpdateInput,
+  endpoint: string,
+  id: number,
+  siteId?: string
+): Promise<string | undefined> {
+  if (input.content !== undefined && input.content_edit !== undefined) {
+    throw new Error('Provide either content or content_edit, not both');
+  }
+
+  if (input.content !== undefined) {
+    return processContent(
+      input.content,
+      input.content_format || 'auto',
+      input.convert_to_blocks || false
+    );
+  }
+
+  if (input.content_edit !== undefined) {
+    validateContentEdit(input.content_edit);
+
+    const existingContent = await getEditableRawContent(endpoint, id, siteId);
+    const processedFragment = await processContent(
+      input.content_edit.value,
+      input.content_edit.content_format || 'auto',
+      input.content_edit.convert_to_blocks || false
+    );
+
+    return applyContentEdit(existingContent, {
+      ...input.content_edit,
+      value: processedFragment
+    });
+  }
+
+  return undefined;
+}
+
+async function buildContentUpdateData(
+  input: ContentUpdateInput,
+  endpoint: string,
+  id: number,
+  siteId?: string
+) {
+  const updateData: any = {};
+
+  if (input.title !== undefined) updateData.title = input.title;
+
+  const updatedContent = await resolveUpdatedContent(input, endpoint, id, siteId);
+  if (updatedContent !== undefined) updateData.content = updatedContent;
+
+  if (input.status !== undefined) updateData.status = input.status;
+  if (input.excerpt !== undefined) updateData.excerpt = input.excerpt;
+  if (input.slug !== undefined) updateData.slug = input.slug;
+  if (input.author !== undefined) updateData.author = input.author;
+  if (input.parent !== undefined) updateData.parent = input.parent;
+  if (input.featured_media !== undefined) updateData.featured_media = input.featured_media;
+  if (input.format !== undefined) updateData.format = input.format;
+  if (input.menu_order !== undefined) updateData.menu_order = input.menu_order;
+  if (input.categories !== undefined) updateData.categories = input.categories;
+  if (input.tags !== undefined) updateData.tags = input.tags;
+  if (input.meta !== undefined) updateData.meta = input.meta;
+
+  if (input.custom_fields) {
+    Object.assign(updateData, input.custom_fields);
+  }
+
+  return updateData;
+}
+
 // Schema definitions
 const listContentSchema = z.object({
   content_type: z.string().describe("The content type slug (e.g., 'post', 'page', 'product', 'documentation')"),
@@ -458,7 +643,37 @@ const createContentSchema = z.object({
   custom_fields: z.record(z.any()).optional().describe("Custom fields specific to this content type")
 });
 
-const updateContentSchema = z.object({
+const contentEditSchema = z.object({
+  operation: z.enum(CONTENT_EDIT_OPERATIONS).describe(
+    "Partial content edit operation: append, prepend, insert_before, insert_after, or replace"
+  ),
+  value: z.string().describe(
+    "Content fragment to insert or use as the replacement. Accepts Gutenberg blocks, HTML, or Markdown."
+  ),
+  target_text: z.string().optional().describe(
+    "Exact raw content fragment to target for insert_before, insert_after, or replace"
+  ),
+  occurrence: z.number().int().positive().optional().describe(
+    "Optional 1-based occurrence to target when target_text appears multiple times"
+  ),
+  content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto').describe(
+    "Format hint for the content_edit value"
+  ),
+  convert_to_blocks: z.boolean().optional().default(false).describe(
+    "Convert the content_edit value to Gutenberg blocks before applying it"
+  )
+}).superRefine((value, ctx) => {
+  const targetedOperations = new Set<ContentEditOperation>(['insert_before', 'insert_after', 'replace']);
+  if (targetedOperations.has(value.operation) && !value.target_text) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `target_text is required for ${value.operation}`,
+      path: ['target_text']
+    });
+  }
+});
+
+const updateContentSchemaShape = {
   content_type: z.string().describe("The content type slug"),
   id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
@@ -473,6 +688,9 @@ const updateContentSchema = z.object({
   convert_to_blocks: z.boolean().optional().default(false).describe(
     "Convert content to Gutenberg blocks. Recommended for sites using block editor."
   ),
+  content_edit: contentEditSchema.optional().describe(
+    "Apply a targeted edit to the existing raw content instead of replacing the whole document"
+  ),
   status: z.string().optional().describe("Content status"),
   excerpt: z.string().optional().describe("Content excerpt"),
   slug: z.string().optional().describe("Content slug"),
@@ -485,6 +703,16 @@ const updateContentSchema = z.object({
   menu_order: z.number().optional().describe("Menu order"),
   meta: z.record(z.any()).optional().describe("Meta fields"),
   custom_fields: z.record(z.any()).optional().describe("Custom fields")
+};
+
+const updateContentSchema = z.object(updateContentSchemaShape).superRefine((value, ctx) => {
+  if (value.content !== undefined && value.content_edit !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Provide either content or content_edit, not both",
+      path: ['content_edit']
+    });
+  }
 });
 
 const deleteContentSchema = z.object({
@@ -499,19 +727,32 @@ const discoverContentTypesSchema = z.object({
   site_id: z.string().optional().describe("Site ID (for multi-site setups)")
 });
 
+const findContentByUrlUpdateFieldsShape = {
+  title: z.string().optional(),
+  content: z.string().optional().describe(
+    "Content body. Accepts Gutenberg blocks, HTML, or Markdown (auto-converted to HTML)."
+  ),
+  content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto'),
+  convert_to_blocks: z.boolean().optional().default(false),
+  content_edit: contentEditSchema.optional().describe(
+    "Apply a targeted edit to the existing raw content instead of replacing the whole document"
+  ),
+  status: z.string().optional(),
+  meta: z.record(z.any()).optional(),
+  custom_fields: z.record(z.any()).optional()
+};
+
 const findContentByUrlSchema = z.object({
   url: z.string().describe("The full URL of the content to find"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
-  update_fields: z.object({
-    title: z.string().optional(),
-    content: z.string().optional().describe(
-      "Content body. Accepts Gutenberg blocks, HTML, or Markdown (auto-converted to HTML)."
-    ),
-    content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto'),
-    convert_to_blocks: z.boolean().optional().default(false),
-    status: z.string().optional(),
-    meta: z.record(z.any()).optional(),
-    custom_fields: z.record(z.any()).optional()
+  update_fields: z.object(findContentByUrlUpdateFieldsShape).superRefine((value, ctx) => {
+    if (value.content !== undefined && value.content_edit !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide either content or content_edit, not both",
+        path: ['content_edit']
+      });
+    }
   }).optional().describe("Optional fields to update after finding the content")
 });
 
@@ -550,7 +791,7 @@ export const unifiedContentTools: Tool[] = [
   {
     name: "update_content",
     description: "Updates existing content of any type",
-    inputSchema: { type: "object", properties: updateContentSchema.shape }
+    inputSchema: { type: "object", properties: updateContentSchemaShape }
   },
   {
     name: "delete_content",
@@ -565,7 +806,11 @@ export const unifiedContentTools: Tool[] = [
   {
     name: "find_content_by_url", 
     description: "Finds content by its URL, automatically detecting the content type, and optionally updates it",
-    inputSchema: { type: "object", properties: findContentByUrlSchema.shape }
+    inputSchema: { type: "object", properties: {
+      url: z.string().describe("The full URL of the content to find"),
+      site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
+      update_fields: z.object(findContentByUrlUpdateFieldsShape).optional().describe("Optional fields to update after finding the content")
+    } }
   },
   {
     name: "get_content_by_slug",
@@ -711,35 +956,7 @@ export const unifiedContentHandlers = {
   update_content: async (params: UpdateContentParams) => {
     try {
       const endpoint = await getContentEndpoint(params.content_type, params.site_id);
-
-      const updateData: any = {};
-
-      // Only include defined fields
-      if (params.title !== undefined) updateData.title = params.title;
-      if (params.content !== undefined) {
-        // Process content format (markdown -> HTML, optional block conversion)
-        updateData.content = await processContent(
-          params.content,
-          params.content_format || 'auto',
-          params.convert_to_blocks || false
-        );
-      }
-      if (params.status !== undefined) updateData.status = params.status;
-      if (params.excerpt !== undefined) updateData.excerpt = params.excerpt;
-      if (params.slug !== undefined) updateData.slug = params.slug;
-      if (params.author !== undefined) updateData.author = params.author;
-      if (params.parent !== undefined) updateData.parent = params.parent;
-      if (params.featured_media !== undefined) updateData.featured_media = params.featured_media;
-      if (params.format !== undefined) updateData.format = params.format;
-      if (params.menu_order !== undefined) updateData.menu_order = params.menu_order;
-      if (params.categories !== undefined) updateData.categories = params.categories;
-      if (params.tags !== undefined) updateData.tags = params.tags;
-      if (params.meta !== undefined) updateData.meta = params.meta;
-      
-      // Add custom fields
-      if (params.custom_fields) {
-        Object.assign(updateData, params.custom_fields);
-      }
+      const updateData = await buildContentUpdateData(params, endpoint, params.id, params.site_id);
       
       const response = await makeWordPressRequest('POST', `${endpoint}/${params.id}`, updateData, { siteId: params.site_id });
       
@@ -887,22 +1104,12 @@ export const unifiedContentHandlers = {
         // Update if requested
         if (params.update_fields) {
           const endpoint = await getContentEndpoint(contentType, params.site_id);
-
-          const updateData: any = {};
-          if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
-          if (params.update_fields.content !== undefined) {
-            // Process content format (markdown -> HTML, optional block conversion)
-            updateData.content = await processContent(
-              params.update_fields.content,
-              params.update_fields.content_format || 'auto',
-              params.update_fields.convert_to_blocks || false
-            );
-          }
-          if (params.update_fields.status !== undefined) updateData.status = params.update_fields.status;
-          if (params.update_fields.meta !== undefined) updateData.meta = params.update_fields.meta;
-          if (params.update_fields.custom_fields !== undefined) {
-            Object.assign(updateData, params.update_fields.custom_fields);
-          }
+          const updateData = await buildContentUpdateData(
+            params.update_fields,
+            endpoint,
+            content.id,
+            params.site_id
+          );
 
           const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
 
@@ -946,22 +1153,12 @@ export const unifiedContentHandlers = {
       // Update if requested
       if (params.update_fields) {
         const endpoint = await getContentEndpoint(contentType, params.site_id);
-
-        const updateData: any = {};
-        if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
-        if (params.update_fields.content !== undefined) {
-          // Process content format (markdown -> HTML, optional block conversion)
-          updateData.content = await processContent(
-            params.update_fields.content,
-            params.update_fields.content_format || 'auto',
-            params.update_fields.convert_to_blocks || false
-          );
-        }
-        if (params.update_fields.status !== undefined) updateData.status = params.update_fields.status;
-        if (params.update_fields.meta !== undefined) updateData.meta = params.update_fields.meta;
-        if (params.update_fields.custom_fields !== undefined) {
-          Object.assign(updateData, params.update_fields.custom_fields);
-        }
+        const updateData = await buildContentUpdateData(
+          params.update_fields,
+          endpoint,
+          content.id,
+          params.site_id
+        );
 
         const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
 

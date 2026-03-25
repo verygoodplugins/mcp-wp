@@ -506,12 +506,7 @@ function applyContentEdit(existingContent: string, edit: ContentEditParams): str
 }
 
 async function getEditableRawContent(endpoint: string, id: number, siteId?: string): Promise<string> {
-  const response = await makeWordPressRequest(
-    'GET',
-    `${endpoint}/${id}`,
-    { context: 'edit' },
-    { siteId }
-  );
+  const response = await fetchContentById(endpoint, id, siteId, true);
 
   const rawContent = response?.content?.raw;
   if (typeof rawContent !== 'string') {
@@ -519,6 +514,34 @@ async function getEditableRawContent(endpoint: string, id: number, siteId?: stri
   }
 
   return rawContent;
+}
+
+function withContentRawAlias<T extends Record<string, any>>(response: T): T & { content_raw?: string } {
+  const rawContent = response?.content?.raw;
+  if (typeof rawContent !== 'string') {
+    return response;
+  }
+
+  return {
+    ...response,
+    content_raw: rawContent
+  };
+}
+
+async function fetchContentById(
+  endpoint: string,
+  id: number,
+  siteId?: string,
+  includeRawContent: boolean = false
+) {
+  const response = await makeWordPressRequest(
+    'GET',
+    `${endpoint}/${id}`,
+    includeRawContent ? { context: 'edit' } : undefined,
+    { siteId }
+  );
+
+  return includeRawContent ? withContentRawAlias(response) : response;
 }
 
 async function resolveUpdatedContent(
@@ -612,7 +635,10 @@ const listContentSchema = z.object({
 const getContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
   id: z.coerce.number().describe("Content ID"),
-  site_id: z.string().optional().describe("Site ID (for multi-site setups)")
+  site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
+  include_raw_content: z.boolean().optional().default(false).describe(
+    "Fetch the content with WordPress edit context and include a top-level content_raw field for exact matching"
+  )
 });
 
 const createContentSchema = z.object({
@@ -745,6 +771,9 @@ const findContentByUrlUpdateFieldsShape = {
 const findContentByUrlSchema = z.object({
   url: z.string().describe("The full URL of the content to find"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
+  include_raw_content: z.boolean().optional().default(false).describe(
+    "Fetch the matched content with WordPress edit context and include a top-level content_raw field for exact matching"
+  ),
   update_fields: z.object(findContentByUrlUpdateFieldsShape).superRefine((value, ctx) => {
     if (value.content !== undefined && value.content_edit !== undefined) {
       ctx.addIssue({
@@ -809,6 +838,9 @@ export const unifiedContentTools: Tool[] = [
     inputSchema: { type: "object", properties: {
       url: z.string().describe("The full URL of the content to find"),
       site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
+      include_raw_content: z.boolean().optional().default(false).describe(
+        "Fetch the matched content with WordPress edit context and include a top-level content_raw field for exact matching"
+      ),
       update_fields: z.object(findContentByUrlUpdateFieldsShape).optional().describe("Optional fields to update after finding the content")
     } }
   },
@@ -856,7 +888,12 @@ export const unifiedContentHandlers = {
   get_content: async (params: GetContentParams) => {
     try {
       const endpoint = await getContentEndpoint(params.content_type, params.site_id);
-      const response = await makeWordPressRequest('GET', `${endpoint}/${params.id}`, undefined, { siteId: params.site_id });
+      const response = await fetchContentById(
+        endpoint,
+        params.id,
+        params.site_id,
+        params.include_raw_content || false
+      );
 
       return {
         toolResult: {
@@ -1111,7 +1148,10 @@ export const unifiedContentHandlers = {
             params.site_id
           );
 
-          const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
+          await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
+          const responseContent = params.include_raw_content
+            ? await fetchContentById(endpoint, content.id, params.site_id, true)
+            : await fetchContentById(endpoint, content.id, params.site_id, false);
 
           return {
             toolResult: {
@@ -1123,13 +1163,18 @@ export const unifiedContentHandlers = {
                   content_id: content.id,
                   original_url: params.url,
                   updated: true,
-                  content: updatedContent
+                  content: responseContent,
+                  content_raw: params.include_raw_content ? responseContent.content_raw : undefined
                 }, null, 2)
               }],
               isError: false
             }
           };
         }
+
+        const responseContent = params.include_raw_content
+          ? await fetchContentById(await getContentEndpoint(contentType, params.site_id), content.id, params.site_id, true)
+          : content;
 
         return {
           toolResult: {
@@ -1140,7 +1185,8 @@ export const unifiedContentHandlers = {
                 content_type: contentType,
                 content_id: content.id,
                 original_url: params.url,
-                content: content
+                content: responseContent,
+                content_raw: params.include_raw_content ? responseContent.content_raw : undefined
               }, null, 2)
             }],
             isError: false
@@ -1160,7 +1206,10 @@ export const unifiedContentHandlers = {
           params.site_id
         );
 
-        const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
+        await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
+        const responseContent = params.include_raw_content
+          ? await fetchContentById(endpoint, content.id, params.site_id, true)
+          : await fetchContentById(endpoint, content.id, params.site_id, false);
 
         return {
           toolResult: {
@@ -1172,13 +1221,18 @@ export const unifiedContentHandlers = {
                 content_id: content.id,
                 original_url: params.url,
                 updated: true,
-                content: updatedContent
+                content: responseContent,
+                content_raw: params.include_raw_content ? responseContent.content_raw : undefined
               }, null, 2)
             }],
             isError: false
           }
         };
       }
+
+      const responseContent = params.include_raw_content
+        ? await fetchContentById(await getContentEndpoint(contentType, params.site_id), content.id, params.site_id, true)
+        : content;
 
       return {
         toolResult: {
@@ -1189,7 +1243,8 @@ export const unifiedContentHandlers = {
               content_type: contentType,
               content_id: content.id,
               original_url: params.url,
-              content: content
+              content: responseContent,
+              content_raw: params.include_raw_content ? responseContent.content_raw : undefined
             }, null, 2)
           }],
           isError: false

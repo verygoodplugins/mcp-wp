@@ -199,6 +199,10 @@ Targeted content edits are also supported through `content_edit` on `update_cont
 }
 ```
 
+To retrieve an exact target string for those edits, `get_content` and `find_content_by_url` also support `include_raw_content: true`, which fetches the item with WordPress edit context and returns a top-level `content_raw` field.
+
+Rendered WordPress HTML can differ from `content.raw`, so exact partial-edit targeting should use the raw value rather than copied rendered markup.
+
 For targeted operations, `target_text` must match the stored raw WordPress content exactly. If it appears multiple times, provide `occurrence` to choose the 1-based match.
 
 #### Unified Taxonomy Management

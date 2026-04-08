@@ -16,7 +16,7 @@ const listUsersSchema = z.object({
 });
 
 const getUserSchema = z.object({
-  id: z.number().describe("User ID"),
+  id: z.coerce.number().describe("User ID"),
   context: z.enum(['view', 'embed', 'edit']).optional().describe("Scope under which the request is made")
 }).strict();
 
@@ -36,7 +36,7 @@ const createUserSchema = z.object({
 }).strict();
 
 const updateUserSchema = z.object({
-  id: z.number().describe("User ID"),
+  id: z.coerce.number().describe("User ID"),
   username: z.string().optional().describe("User login name"),
   name: z.string().optional().describe("Display name for the user"),
   first_name: z.string().optional().describe("First name for the user"),
@@ -52,9 +52,9 @@ const updateUserSchema = z.object({
 }).strict();
 
 const deleteUserSchema = z.object({
-  id: z.number().describe("User ID"),
+  id: z.coerce.number().describe("User ID"),
   force: z.boolean().optional().describe("Whether to bypass trash and force deletion"),
-  reassign: z.number().optional().describe("User ID to reassign posts to")
+  reassign: z.coerce.number().optional().describe("User ID to reassign posts to")
 }).strict();
 
 type ListUsersParams = z.infer<typeof listUsersSchema>;

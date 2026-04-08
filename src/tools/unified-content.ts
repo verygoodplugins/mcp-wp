@@ -2,41 +2,121 @@
 import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { makeWordPressRequest, logToFile } from '../wordpress.js';
 import { z } from 'zod';
+import * as fs from 'fs-extra';
+import * as path from 'path';
+import * as os from 'os';
+import { fileURLToPath } from 'url';
+import { marked } from 'marked';
+
+// Resolve cache directory: prefer env override, fall back to OS temp dir
+const CACHE_DIR = process.env.UNIFIED_CONTENT_CACHE_DIR
+  ? path.resolve(process.env.UNIFIED_CONTENT_CACHE_DIR)
+  : path.join(os.tmpdir(), 'mcp-wp', '.cache');
+
+// Ensure the cache directory exists at module load time (best-effort)
+fs.ensureDir(CACHE_DIR).catch(() => {});
 
 // Cache for post types to reduce API calls
 let postTypesCache: any = null;
 let cacheTimestamp: number = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const CACHE_DURATION = parseInt(process.env.WORDPRESS_CACHE_DURATION || '3600000'); // Default 1 hour, configurable
+
+// Helper function to load cache from disk
+async function loadCacheFromDisk(siteId?: string): Promise<{ data: any; timestamp: number } | null> {
+  try {
+    await fs.ensureDir(CACHE_DIR);
+    const cacheKey = siteId || 'default';
+    const cacheFilePath = path.join(CACHE_DIR, `content-types-${cacheKey}.json`);
+
+    if (await fs.pathExists(cacheFilePath)) {
+      const cache = await fs.readJson(cacheFilePath);
+      return cache;
+    }
+  } catch (error) {
+    logToFile(`Failed to load cache from disk: ${error}`, 'debug');
+  }
+  return null;
+}
+
+// Helper function to save cache to disk
+async function saveCacheToDisk(data: any, siteId?: string): Promise<void> {
+  try {
+    await fs.ensureDir(CACHE_DIR);
+    const cacheKey = siteId || 'default';
+    const cacheFilePath = path.join(CACHE_DIR, `content-types-${cacheKey}.json`);
+
+    await fs.writeJson(cacheFilePath, {
+      data,
+      timestamp: Date.now()
+    });
+  } catch (error) {
+    logToFile(`Failed to save cache to disk: ${error}`, 'debug');
+  }
+}
 
 // Helper function to get all post types with caching
 async function getPostTypes(forceRefresh = false, siteId?: string) {
   const now = Date.now();
-  
+
+  // Try memory cache first
   if (!forceRefresh && postTypesCache && (now - cacheTimestamp) < CACHE_DURATION) {
-    logToFile('Using cached post types');
+    logToFile('Using memory-cached post types', 'debug');
     return postTypesCache;
   }
 
+  // Try disk cache if memory cache is stale
+  if (!forceRefresh) {
+    const diskCache = await loadCacheFromDisk(siteId);
+    if (diskCache && (now - diskCache.timestamp) < CACHE_DURATION) {
+      logToFile('Using disk-cached post types', 'debug');
+      postTypesCache = diskCache.data;
+      cacheTimestamp = diskCache.timestamp;
+      return diskCache.data;
+    }
+  }
+
+  // Fetch from API if cache is stale or refresh forced
   try {
-    logToFile('Fetching post types from API');
+    logToFile('Fetching post types from API', 'info');
     const response = await makeWordPressRequest('GET', 'types', undefined, { siteId });
     postTypesCache = response;
     cacheTimestamp = now;
+
+    // Save to disk for persistence
+    await saveCacheToDisk(response, siteId);
+
     return response;
   } catch (error: any) {
-    logToFile(`Error fetching post types: ${error.message}`);
+    logToFile(`Error fetching post types: ${error.message}`, 'error');
     throw error;
   }
 }
 
 // Helper function to get the correct endpoint for a content type
-function getContentEndpoint(contentType: string): string {
-  const endpointMap: Record<string, string> = {
+async function getContentEndpoint(contentType: string, siteId?: string): Promise<string> {
+  // Quick return for standard types
+  const standardMap: Record<string, string> = {
     'post': 'posts',
     'page': 'pages'
   };
-  
-  return endpointMap[contentType] || contentType;
+
+  if (standardMap[contentType]) {
+    return standardMap[contentType];
+  }
+
+  // For custom post types, we need to get the rest_base from discovered types
+  try {
+    const postTypes = await getPostTypes(false, siteId);
+    if (postTypes[contentType] && postTypes[contentType].rest_base) {
+      return postTypes[contentType].rest_base;
+    }
+  } catch (error) {
+    logToFile(`Failed to get rest_base for content type ${contentType}: ${error}`);
+  }
+
+  // Fallback: try the content type as-is
+  logToFile(`Warning: No rest_base found for content type '${contentType}', using as-is`);
+  return contentType;
 }
 
 // Helper function to parse URL and extract slug and potential post type hints
@@ -64,37 +144,265 @@ function parseUrl(url: string): { slug: string; pathHints: string[] } {
 // Helper function to find content across multiple post types
 async function findContentAcrossTypes(slug: string, contentTypes?: string[], siteId?: string) {
   const typesToSearch = contentTypes || [];
-  
+
   // If no specific content types provided, get all available types
   if (typesToSearch.length === 0) {
     const allTypes = await getPostTypes(false, siteId);
-    typesToSearch.push(...Object.keys(allTypes).filter(type => 
+    typesToSearch.push(...Object.keys(allTypes).filter(type =>
       type !== 'attachment' && type !== 'wp_block'
     ));
   }
-  
-  logToFile(`Searching for slug "${slug}" across content types: ${typesToSearch.join(', ')}`);
-  
-  // Search each content type for the slug
-  for (const contentType of typesToSearch) {
-    try {
-      const endpoint = getContentEndpoint(contentType);
-      
-      const response = await makeWordPressRequest('GET', endpoint, {
-        slug: slug,
-        per_page: 1
-      }, { siteId });
-      
-      if (Array.isArray(response) && response.length > 0) {
-        logToFile(`Found content with slug "${slug}" in content type "${contentType}"`);
-        return { content: response[0], contentType };
+
+  logToFile(`Searching for slug "${slug}" across content types: ${typesToSearch.join(', ')}`, 'debug');
+
+  // Check if parallel search is enabled (default: true)
+  const enableParallel = process.env.WORDPRESS_PARALLEL_SEARCH !== 'false';
+
+  if (enableParallel && typesToSearch.length > 1) {
+    // Parallel search for better performance
+    const searchPromises = typesToSearch.map(async (contentType) => {
+      try {
+        const endpoint = await getContentEndpoint(contentType, siteId);
+        const response = await makeWordPressRequest('GET', endpoint, {
+          slug: slug,
+          per_page: 1
+        }, { siteId });
+
+        if (Array.isArray(response) && response.length > 0) {
+          logToFile(`Found content with slug "${slug}" in content type "${contentType}"`, 'info');
+          return { content: response[0], contentType };
+        }
+      } catch (error) {
+        logToFile(`Error searching ${contentType}: ${error}`, 'debug');
       }
-    } catch (error) {
-      logToFile(`Error searching ${contentType}: ${error}`);
+      return null;
+    });
+
+    // Execute all searches in parallel
+    const results = await Promise.all(searchPromises);
+
+    // Return first non-null result
+    const found = results.find(result => result !== null);
+    if (found) return found;
+  } else {
+    // Sequential search (fallback or when only 1 type)
+    for (const contentType of typesToSearch) {
+      try {
+        const endpoint = await getContentEndpoint(contentType, siteId);
+
+        const response = await makeWordPressRequest('GET', endpoint, {
+          slug: slug,
+          per_page: 1
+        }, { siteId });
+
+        if (Array.isArray(response) && response.length > 0) {
+          logToFile(`Found content with slug "${slug}" in content type "${contentType}"`, 'info');
+          return { content: response[0], contentType };
+        }
+      } catch (error) {
+        logToFile(`Error searching ${contentType}: ${error}`, 'debug');
+      }
     }
   }
-  
+
   return null;
+}
+
+// Content format types
+type ContentFormat = 'auto' | 'markdown' | 'html' | 'blocks';
+type DetectedFormat = 'blocks' | 'html' | 'markdown' | 'text';
+
+/**
+ * Detects the format of content based on its structure
+ */
+function detectContentFormat(content: string): DetectedFormat {
+  // Check for Gutenberg blocks first (most specific)
+  if (/<!--\s*wp:/.test(content)) {
+    return 'blocks';
+  }
+
+  // Check for HTML tags
+  if (/<[a-z][\s\S]*>/i.test(content)) {
+    return 'html';
+  }
+
+  // Check for common Markdown patterns
+  const markdownPatterns = [
+    /^#{1,6}\s+/m,           // Headers: # Header
+    /\*\*[^*]+\*\*/,         // Bold: **text**
+    /\*[^*]+\*/,             // Italic: *text*
+    /\[[^\]]+\]\([^)]+\)/,   // Links: [text](url)
+    /^[-*+]\s+/m,            // Unordered lists: - item
+    /^\d+\.\s+/m,            // Ordered lists: 1. item
+    /^>\s+/m,                // Blockquotes: > quote
+    /`[^`]+`/,               // Inline code: `code`
+    /^```/m,                 // Code blocks: ```
+    /!\[[^\]]*\]\([^)]+\)/,  // Images: ![alt](url)
+    /^---$/m,                // Horizontal rule
+    /^\|.*\|$/m,             // Tables: | col1 | col2 |
+  ];
+
+  for (const pattern of markdownPatterns) {
+    if (pattern.test(content)) {
+      return 'markdown';
+    }
+  }
+
+  return 'text';
+}
+
+/**
+ * Converts Markdown to HTML using the marked library
+ */
+async function convertMarkdownToHtml(markdown: string): Promise<string> {
+  try {
+    // Configure marked for WordPress-friendly output
+    const html = await marked(markdown, {
+      gfm: true,       // GitHub Flavored Markdown
+      breaks: false,   // Don't convert \n to <br>
+    });
+
+    return html;
+  } catch (error) {
+    logToFile(`Error converting markdown to HTML: ${error}`, 'error');
+    throw error;
+  }
+}
+
+/**
+ * Converts HTML to Gutenberg block format
+ * Wraps HTML elements in appropriate WordPress block comments
+ */
+function convertHtmlToBlocks(html: string): string {
+  const blocks: string[] = [];
+
+  // Split HTML into manageable chunks for block conversion
+  // This regex matches common block-level elements
+  const blockRegex = /<(p|h[1-6]|ul|ol|blockquote|pre|table|hr|div)[^>]*>[\s\S]*?<\/\1>|<(hr|br)\s*\/?>/gi;
+
+  let match;
+  let lastIndex = 0;
+
+  while ((match = blockRegex.exec(html)) !== null) {
+    // Handle any text before this match
+    const textBefore = html.slice(lastIndex, match.index).trim();
+    if (textBefore) {
+      blocks.push(`<!-- wp:paragraph -->\n<p>${textBefore}</p>\n<!-- /wp:paragraph -->`);
+    }
+
+    const element = match[0];
+    const tagName = (match[1] || match[2] || '').toLowerCase();
+
+    switch (tagName) {
+      case 'p':
+        blocks.push(`<!-- wp:paragraph -->\n${element}\n<!-- /wp:paragraph -->`);
+        break;
+      case 'h1':
+        blocks.push(`<!-- wp:heading {"level":1} -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'h2':
+        blocks.push(`<!-- wp:heading -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'h3':
+        blocks.push(`<!-- wp:heading {"level":3} -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'h4':
+        blocks.push(`<!-- wp:heading {"level":4} -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'h5':
+        blocks.push(`<!-- wp:heading {"level":5} -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'h6':
+        blocks.push(`<!-- wp:heading {"level":6} -->\n${element}\n<!-- /wp:heading -->`);
+        break;
+      case 'ul':
+        blocks.push(`<!-- wp:list -->\n${element}\n<!-- /wp:list -->`);
+        break;
+      case 'ol':
+        blocks.push(`<!-- wp:list {"ordered":true} -->\n${element}\n<!-- /wp:list -->`);
+        break;
+      case 'blockquote':
+        blocks.push(`<!-- wp:quote -->\n${element}\n<!-- /wp:quote -->`);
+        break;
+      case 'pre':
+        blocks.push(`<!-- wp:code -->\n${element}\n<!-- /wp:code -->`);
+        break;
+      case 'table':
+        blocks.push(`<!-- wp:table -->\n<figure class="wp-block-table">${element}</figure>\n<!-- /wp:table -->`);
+        break;
+      case 'hr':
+        blocks.push(`<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity"/>\n<!-- /wp:separator -->`);
+        break;
+      default:
+        // Wrap unknown elements in a paragraph block
+        blocks.push(`<!-- wp:paragraph -->\n${element}\n<!-- /wp:paragraph -->`);
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Handle any remaining content after the last match
+  const remaining = html.slice(lastIndex).trim();
+  if (remaining) {
+    blocks.push(`<!-- wp:paragraph -->\n<p>${remaining}</p>\n<!-- /wp:paragraph -->`);
+  }
+
+  // If no blocks were created, wrap the entire content
+  if (blocks.length === 0 && html.trim()) {
+    return `<!-- wp:paragraph -->\n<p>${html}</p>\n<!-- /wp:paragraph -->`;
+  }
+
+  return blocks.join('\n\n');
+}
+
+/**
+ * Main content processing function
+ * Handles format detection, conversion, and optional block wrapping
+ */
+async function processContent(
+  content: string,
+  format: ContentFormat = 'auto',
+  convertToBlocks: boolean = false
+): Promise<string> {
+  // Early return for empty content
+  if (!content || !content.trim()) {
+    return content;
+  }
+
+  // Detect format if auto
+  let detectedFormat: DetectedFormat;
+  if (format === 'auto') {
+    detectedFormat = detectContentFormat(content);
+    logToFile(`Auto-detected content format: ${detectedFormat}`, 'debug');
+  } else {
+    detectedFormat = format === 'blocks' ? 'blocks' : format === 'html' ? 'html' : format === 'markdown' ? 'markdown' : 'text';
+  }
+
+  // If content is already blocks, pass through as-is
+  if (detectedFormat === 'blocks') {
+    logToFile('Content is already in Gutenberg block format, passing through', 'debug');
+    return content;
+  }
+
+  // Convert markdown to HTML if needed
+  let htmlContent: string;
+  if (detectedFormat === 'markdown') {
+    logToFile('Converting markdown to HTML', 'debug');
+    htmlContent = await convertMarkdownToHtml(content);
+  } else if (detectedFormat === 'html') {
+    htmlContent = content;
+  } else {
+    // Plain text - wrap in paragraph tags
+    htmlContent = `<p>${content.replace(/\n\n/g, '</p>\n<p>').replace(/\n/g, '<br>')}</p>`;
+  }
+
+  // Convert to blocks if requested
+  if (convertToBlocks) {
+    logToFile('Converting HTML to Gutenberg blocks', 'debug');
+    return convertHtmlToBlocks(htmlContent);
+  }
+
+  return htmlContent;
 }
 
 // Schema definitions
@@ -118,7 +426,7 @@ const listContentSchema = z.object({
 
 const getContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)")
 });
 
@@ -126,7 +434,16 @@ const createContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   title: z.string().describe("Content title"),
-  content: z.string().describe("Content body"),
+  content: z.string().describe(
+    "Content body. Accepts: Gutenberg blocks (<!-- wp:paragraph --><p>text</p><!-- /wp:paragraph -->), " +
+    "HTML, or Markdown. Markdown is auto-converted to HTML when detected."
+  ),
+  content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto').describe(
+    "Content format hint: 'auto' (detect and convert), 'markdown', 'html', or 'blocks' (Gutenberg)"
+  ),
+  convert_to_blocks: z.boolean().optional().default(false).describe(
+    "Convert content to Gutenberg blocks. Recommended for sites using block editor."
+  ),
   status: z.string().optional().default('draft').describe("Content status"),
   excerpt: z.string().optional().describe("Content excerpt"),
   slug: z.string().optional().describe("Content slug"),
@@ -135,7 +452,7 @@ const createContentSchema = z.object({
   categories: z.array(z.number()).optional().describe("Array of category IDs (for posts)"),
   tags: z.array(z.number()).optional().describe("Array of tag IDs (for posts)"),
   featured_media: z.number().optional().describe("Featured image ID"),
-  format: z.string().optional().describe("Content format"),
+  format: z.string().optional().describe("Post format (standard, aside, gallery, etc.)"),
   menu_order: z.number().optional().describe("Menu order (for pages)"),
   meta: z.record(z.any()).optional().describe("Meta fields"),
   custom_fields: z.record(z.any()).optional().describe("Custom fields specific to this content type")
@@ -143,10 +460,19 @@ const createContentSchema = z.object({
 
 const updateContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   title: z.string().optional().describe("Content title"),
-  content: z.string().optional().describe("Content body"),
+  content: z.string().optional().describe(
+    "Content body. Accepts: Gutenberg blocks (<!-- wp:paragraph --><p>text</p><!-- /wp:paragraph -->), " +
+    "HTML, or Markdown. Markdown is auto-converted to HTML when detected."
+  ),
+  content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto').describe(
+    "Content format hint: 'auto' (detect and convert), 'markdown', 'html', or 'blocks' (Gutenberg)"
+  ),
+  convert_to_blocks: z.boolean().optional().default(false).describe(
+    "Convert content to Gutenberg blocks. Recommended for sites using block editor."
+  ),
   status: z.string().optional().describe("Content status"),
   excerpt: z.string().optional().describe("Content excerpt"),
   slug: z.string().optional().describe("Content slug"),
@@ -155,7 +481,7 @@ const updateContentSchema = z.object({
   categories: z.array(z.number()).optional().describe("Array of category IDs"),
   tags: z.array(z.number()).optional().describe("Array of tag IDs"),
   featured_media: z.number().optional().describe("Featured image ID"),
-  format: z.string().optional().describe("Content format"),
+  format: z.string().optional().describe("Post format (standard, aside, gallery, etc.)"),
   menu_order: z.number().optional().describe("Menu order"),
   meta: z.record(z.any()).optional().describe("Meta fields"),
   custom_fields: z.record(z.any()).optional().describe("Custom fields")
@@ -163,7 +489,7 @@ const updateContentSchema = z.object({
 
 const deleteContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
-  id: z.number().describe("Content ID"),
+  id: z.coerce.number().describe("Content ID"),
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   force: z.boolean().optional().describe("Whether to bypass trash and force deletion")
 });
@@ -178,7 +504,11 @@ const findContentByUrlSchema = z.object({
   site_id: z.string().optional().describe("Site ID (for multi-site setups)"),
   update_fields: z.object({
     title: z.string().optional(),
-    content: z.string().optional(),
+    content: z.string().optional().describe(
+      "Content body. Accepts Gutenberg blocks, HTML, or Markdown (auto-converted to HTML)."
+    ),
+    content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto'),
+    convert_to_blocks: z.boolean().optional().default(false),
     status: z.string().optional(),
     meta: z.record(z.any()).optional(),
     custom_fields: z.record(z.any()).optional()
@@ -247,26 +577,30 @@ export const unifiedContentTools: Tool[] = [
 export const unifiedContentHandlers = {
   list_content: async (params: ListContentParams) => {
     try {
-      const endpoint = getContentEndpoint(params.content_type);
+      const endpoint = await getContentEndpoint(params.content_type, params.site_id);
       const { content_type, site_id, ...queryParams } = params;
-      
+
       const response = await makeWordPressRequest('GET', endpoint, queryParams, { siteId: site_id });
-      
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
+          content: [{
+            type: 'text',
+            text: JSON.stringify(response, null, 2)
           }],
           isError: false
         }
       };
     } catch (error: any) {
+      // Add helpful guidance for agents
+      const guidance = error.message.includes('404') || error.message.includes('Not Found')
+        ? '\nHint: Try running discover_content_types first to see available content types.'
+        : '';
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error listing content: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error listing content: ${error.message}${guidance}`
           }],
           isError: true
         }
@@ -276,24 +610,27 @@ export const unifiedContentHandlers = {
 
   get_content: async (params: GetContentParams) => {
     try {
-      const endpoint = getContentEndpoint(params.content_type);
+      const endpoint = await getContentEndpoint(params.content_type, params.site_id);
       const response = await makeWordPressRequest('GET', `${endpoint}/${params.id}`, undefined, { siteId: params.site_id });
-      
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
+          content: [{
+            type: 'text',
+            text: JSON.stringify(response, null, 2)
           }],
           isError: false
         }
       };
     } catch (error: any) {
+      const guidance = error.message.includes('404') || error.message.includes('Not Found')
+        ? '\nHint: Check if the content type exists with discover_content_types.'
+        : '';
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error getting content: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error getting content: ${error.message}${guidance}`
           }],
           isError: true
         }
@@ -303,11 +640,18 @@ export const unifiedContentHandlers = {
 
   create_content: async (params: CreateContentParams) => {
     try {
-      const endpoint = getContentEndpoint(params.content_type);
-      
+      const endpoint = await getContentEndpoint(params.content_type, params.site_id);
+
+      // Process content format (markdown -> HTML, optional block conversion)
+      const processedContent = await processContent(
+        params.content,
+        params.content_format || 'auto',
+        params.convert_to_blocks || false
+      );
+
       const contentData: any = {
         title: params.title,
-        content: params.content,
+        content: processedContent,
         status: params.status,
         excerpt: params.excerpt,
         slug: params.slug,
@@ -349,11 +693,14 @@ export const unifiedContentHandlers = {
         }
       };
     } catch (error: any) {
+      const guidance = error.message.includes('404') || error.message.includes('Not Found')
+        ? '\nHint: The content type may not exist. Run discover_content_types to see available types.'
+        : '';
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error creating content: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error creating content: ${error.message}${guidance}`
           }],
           isError: true
         }
@@ -363,13 +710,20 @@ export const unifiedContentHandlers = {
 
   update_content: async (params: UpdateContentParams) => {
     try {
-      const endpoint = getContentEndpoint(params.content_type);
-      
+      const endpoint = await getContentEndpoint(params.content_type, params.site_id);
+
       const updateData: any = {};
-      
+
       // Only include defined fields
       if (params.title !== undefined) updateData.title = params.title;
-      if (params.content !== undefined) updateData.content = params.content;
+      if (params.content !== undefined) {
+        // Process content format (markdown -> HTML, optional block conversion)
+        updateData.content = await processContent(
+          params.content,
+          params.content_format || 'auto',
+          params.convert_to_blocks || false
+        );
+      }
       if (params.status !== undefined) updateData.status = params.status;
       if (params.excerpt !== undefined) updateData.excerpt = params.excerpt;
       if (params.slug !== undefined) updateData.slug = params.slug;
@@ -413,7 +767,7 @@ export const unifiedContentHandlers = {
 
   delete_content: async (params: DeleteContentParams) => {
     try {
-      const endpoint = getContentEndpoint(params.content_type);
+      const endpoint = await getContentEndpoint(params.content_type, params.site_id);
       
       const response = await makeWordPressRequest('DELETE', `${endpoint}/${params.id}`, {
         force: params.force || false
@@ -532,23 +886,30 @@ export const unifiedContentHandlers = {
         
         // Update if requested
         if (params.update_fields) {
-          const endpoint = getContentEndpoint(contentType);
-          
+          const endpoint = await getContentEndpoint(contentType, params.site_id);
+
           const updateData: any = {};
           if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
-          if (params.update_fields.content !== undefined) updateData.content = params.update_fields.content;
+          if (params.update_fields.content !== undefined) {
+            // Process content format (markdown -> HTML, optional block conversion)
+            updateData.content = await processContent(
+              params.update_fields.content,
+              params.update_fields.content_format || 'auto',
+              params.update_fields.convert_to_blocks || false
+            );
+          }
           if (params.update_fields.status !== undefined) updateData.status = params.update_fields.status;
           if (params.update_fields.meta !== undefined) updateData.meta = params.update_fields.meta;
           if (params.update_fields.custom_fields !== undefined) {
             Object.assign(updateData, params.update_fields.custom_fields);
           }
-          
+
           const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
-          
+
           return {
             toolResult: {
-              content: [{ 
-                type: 'text', 
+              content: [{
+                type: 'text',
                 text: JSON.stringify({
                   found: true,
                   content_type: contentType,
@@ -562,11 +923,11 @@ export const unifiedContentHandlers = {
             }
           };
         }
-        
+
         return {
           toolResult: {
-            content: [{ 
-              type: 'text', 
+            content: [{
+              type: 'text',
               text: JSON.stringify({
                 found: true,
                 content_type: contentType,
@@ -579,28 +940,35 @@ export const unifiedContentHandlers = {
           }
         };
       }
-      
+
       const { content, contentType } = result;
-      
+
       // Update if requested
       if (params.update_fields) {
-        const endpoint = getContentEndpoint(contentType);
-        
+        const endpoint = await getContentEndpoint(contentType, params.site_id);
+
         const updateData: any = {};
         if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
-        if (params.update_fields.content !== undefined) updateData.content = params.update_fields.content;
+        if (params.update_fields.content !== undefined) {
+          // Process content format (markdown -> HTML, optional block conversion)
+          updateData.content = await processContent(
+            params.update_fields.content,
+            params.update_fields.content_format || 'auto',
+            params.update_fields.convert_to_blocks || false
+          );
+        }
         if (params.update_fields.status !== undefined) updateData.status = params.update_fields.status;
         if (params.update_fields.meta !== undefined) updateData.meta = params.update_fields.meta;
         if (params.update_fields.custom_fields !== undefined) {
           Object.assign(updateData, params.update_fields.custom_fields);
         }
-        
+
         const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
-        
+
         return {
           toolResult: {
-            content: [{ 
-              type: 'text', 
+            content: [{
+              type: 'text',
               text: JSON.stringify({
                 found: true,
                 content_type: contentType,
@@ -614,11 +982,11 @@ export const unifiedContentHandlers = {
           }
         };
       }
-      
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
+          content: [{
+            type: 'text',
             text: JSON.stringify({
               found: true,
               content_type: contentType,

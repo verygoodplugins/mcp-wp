@@ -224,7 +224,26 @@ WORDPRESS_PASSWORD=wp_app_password
 
 # Optional: Custom SQL query endpoint (default: /mcp/v1/query)
 WORDPRESS_SQL_ENDPOINT=/mcp/v1/query
+
+# Optional: Comma-separated list of top-level fields to strip from
+# WordPress REST API responses before they are returned to the MCP
+# client. Defaults to "yoast_head,yoast_head_json" — read-only schema
+# markup that adds ~10KB to every response but is rarely useful to the
+# LLM. Set to an empty string to disable trimming.
+MCP_WP_STRIP_FIELDS=yoast_head,yoast_head_json
 ```
+
+## Response Trimming
+
+By default the server strips the top-level `yoast_head` and `yoast_head_json`
+fields from every WordPress REST API response before returning it to the MCP
+client. These fields contain Yoast SEO's pre-rendered schema markup, which the
+LLM almost never needs but pays tokens for on every request.
+
+- The trim applies to both single-object responses and arrays of objects.
+- Only **top-level** fields are stripped; nested objects are left untouched.
+- Override the list with the `MCP_WP_STRIP_FIELDS` environment variable
+  (comma-separated). Set it to an empty string to disable trimming entirely.
 
 ## Enabling SQL Query Tool (Optional)
 

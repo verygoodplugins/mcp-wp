@@ -367,6 +367,18 @@ or in development mode:
 npm run dev
 ```
 
+### Running Tests
+
+The repo uses [Vitest](https://vitest.dev/) for unit tests. Tests live under `tests/` and cover the
+multi-site `SiteManager` and the MCP tool registry wiring.
+
+```bash
+npm test          # one-shot run
+npm run test:watch  # watch mode
+```
+
+Tests run on `pull_request` and on pushes to `main` via `.github/workflows/test.yml`.
+
 ### Security
 
 - **Never commit your API keys or secrets to version control.**

@@ -54,8 +54,10 @@ for (const tool of allTools) {
     // const jsonSchema = zodToJsonSchema(z.object(tool.inputSchema.properties as z.ZodRawShape));
     // const parsedSchema = z.any().optional().parse(jsonSchema);
 
-    const zodSchema = z.object(tool.inputSchema.properties as z.ZodRawShape); 
-    server.tool(tool.name, zodSchema.shape, wrappedHandler)
+    const rawShape = tool.inputSchema.properties as z.ZodRawShape;
+    // Cast bypasses TS2589: server.tool's generic resolves ShapeOutput<Args>
+    // against the SDK's z3|z4 union schema type, exploding instantiation depth.
+    (server.tool as (name: string, schema: z.ZodRawShape, cb: typeof wrappedHandler) => unknown)(tool.name, rawShape, wrappedHandler);
 
 }
 

@@ -157,6 +157,87 @@ All taxonomy operations use a single `taxonomy` parameter:
 }
 ```
 
+#### Recipe Cards (WP Recipe Maker)
+
+Sites running [WP Recipe Maker](https://wordpress.org/plugins/wp-recipe-maker/) (WPRM) store recipe cards in a separate `wprm_recipe` custom post type referenced by shortcode from the surrounding blog post. The unified content tools handle these recipes directly — no recipe-specific tool family is needed.
+
+**Reading recipes** — `get_content`, `list_content`, `find_content_by_url`, and `get_content_by_slug` all work with `content_type: "wprm_recipe"`. WPRM exposes the full structured recipe payload as a `recipe` field on the REST response, including ingredients, instructions, times, equipment, nutrition, notes, and rating.
+
+**Writing recipes** — pass the recipe payload via `custom_fields.recipe` on `create_content` or `update_content`. WPRM hooks into the WordPress REST insert action (`rest_insert_wprm_recipe`) and reads `recipe` from the request body root, so any field documented by WPRM's data model is accepted.
+
+> The `recipe` payload must be passed via `custom_fields` (which spreads at the request body root). The `meta` parameter nests its values under a `meta` key, which never reaches WPRM's REST hook.
+
+Example update:
+
+```json
+{
+  "content_type": "wprm_recipe",
+  "id": 4274,
+  "custom_fields": {
+    "recipe": {
+      "name": "Easy Smoked Asparagus",
+      "summary": "Smoky asparagus with hot honey.",
+      "servings": "4",
+      "servings_unit": "people",
+      "prep_time": "5",
+      "cook_time": "60",
+      "total_time": "65",
+      "ingredients": [
+        {
+          "name": "",
+          "ingredients": [
+            { "uid": 0, "amount": "1", "unit": "Bunch", "name": "Asparagus Spears", "notes": "" },
+            { "uid": 1, "amount": "1", "unit": "tbsp", "name": "Olive Oil", "notes": "" }
+          ]
+        }
+      ],
+      "instructions": [
+        {
+          "name": "",
+          "instructions": [
+            { "uid": 0, "name": "", "text": "Preheat smoker to 225°F.", "ingredients": [] },
+            { "uid": 1, "name": "", "text": "Drizzle with oil, season, smoke 1 hour.", "ingredients": [] }
+          ]
+        }
+      ],
+      "notes": "Thicker spears need more time."
+    }
+  }
+}
+```
+
+**Grouped ingredients and instructions** — recipes can split items into named groups like "For the sauce" / "For the chicken". Each entry in the outer `ingredients` (or `instructions`) array is one group with its own `name` and inner array:
+
+```json
+{
+  "ingredients": [
+    { "name": "For the sauce",   "ingredients": [ /* items */ ] },
+    { "name": "For the chicken", "ingredients": [ /* items */ ] }
+  ]
+}
+```
+
+Commonly used recipe fields:
+
+| Field           | Type            | Notes                                                |
+| --------------- | --------------- | ---------------------------------------------------- |
+| `name`          | string          | Recipe card title                                    |
+| `summary`       | string          | Short blurb (HTML allowed)                           |
+| `servings`      | string          | e.g. `"4"`                                           |
+| `servings_unit` | string          | e.g. `"people"`, `"servings"`                        |
+| `prep_time`     | string          | minutes, e.g. `"15"`                                 |
+| `cook_time`     | string          | minutes                                              |
+| `total_time`    | string          | minutes                                              |
+| `ingredients`   | array of groups | nested structure shown above                         |
+| `instructions`  | array of groups | nested structure shown above                         |
+| `notes`         | string          | HTML allowed                                         |
+| `equipment`     | array           | items shaped `{ id, name, notes, amount, uid }`      |
+| `image_url`     | string          | upload-by-URL when no `image_id` is supplied         |
+
+Course, cuisine, and keyword are stored as WPRM taxonomies (`wprm_course`, `wprm_cuisine`, `wprm_keyword`). Manage them with the unified taxonomy tools (`list_terms`, `create_term`, …) and link them to a recipe with `assign_terms_to_content`.
+
+WPRM auto-syncs `recipe.summary` back to the WordPress `post_content` field on save. If you want the post body and the recipe summary to differ, pass `content` explicitly alongside `custom_fields.recipe`.
+
 ## Configuration
 
 ### Single Site Configuration

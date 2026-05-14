@@ -28,7 +28,7 @@ Manage multiple WordPress sites from a single MCP server:
 
 All content and taxonomy tools support an optional `site_id` parameter to target specific sites.
 
-### **Unified Content Management** (8 tools)
+### **Unified Content Management** (9 tools)
 
 Handles ALL content types (posts, pages, custom post types) with a single set of intelligent tools:
 
@@ -40,6 +40,7 @@ Handles ALL content types (posts, pages, custom post types) with a single set of
 - `discover_content_types`: Find all available content types on your site
 - `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL
 - `get_content_by_slug`: Search by slug across all content types
+- `get_content_summary`: Return a minimal summary (id, title, slug, status, excerpt, taxonomies, word count, Yoast SEO fields) for audit and lookup workflows. Look up by `id` or `url`.
 
 ### **Unified Taxonomy Management** (8 tools)
 
@@ -130,6 +131,58 @@ The `find_content_by_url` tool can:
 - Detect content types from URL patterns (e.g., `/documentation/` → documentation custom post type)
 - Optionally update the content in a single operation
 - Works with posts, pages, and any custom post types
+
+#### Audit & Lookup Summaries
+
+The `get_content_summary` tool returns a minimal, fixed-shape representation of a single piece of content. Designed for audit and lookup workflows where the full WP REST response — which can exceed 50KB on recipe posts because of the rendered Recipe Maker card HTML — is overkill.
+
+**Look up by ID** (with optional `content_type`, defaulting to `post`):
+
+```json
+{
+  "id": 4274,
+  "content_type": "post"
+}
+```
+
+**Look up by URL** (content type is detected from the URL):
+
+```json
+{
+  "url": "https://example.com/blog/easy-smoked-asparagus/"
+}
+```
+
+`id` and `url` are mutually exclusive — provide exactly one.
+
+The response shape is fixed:
+
+```json
+{
+  "id": 4274,
+  "title": "Easy Smoked Asparagus & Hot Honey",
+  "slug": "easy-smoked-asparagus",
+  "status": "publish",
+  "link": "https://example.com/blog/easy-smoked-asparagus/",
+  "excerpt": "Smoky asparagus with hot honey.",
+  "date_modified": "2026-04-30T10:14:00",
+  "categories": [12, 7],
+  "tags": [33],
+  "featured_media": 9012,
+  "word_count": 875,
+  "yoast_focus_keyword": "smoked asparagus",
+  "yoast_meta_title": "Easy Smoked Asparagus | Example",
+  "yoast_meta_description": "Smoky charred asparagus finished with chili-lime hot honey."
+}
+```
+
+Field notes:
+
+- `title` and `excerpt` are stripped to plain text (HTML tags removed, basic entities decoded).
+- `word_count` prefers `yoast_head_json.schema.@graph[].wordCount` when Yoast SEO is active; otherwise it is computed from the rendered post content with HTML stripped.
+- `yoast_meta_title` and `yoast_meta_description` are read from `yoast_head_json` on the post. They are `null` when Yoast SEO is not active.
+- `yoast_focus_keyword` is read from `meta._yoast_wpseo_focuskw`. WordPress core only exposes meta keys that are registered with `show_in_rest`, and Yoast SEO does not register this key by default — so this field will typically be `null` unless a companion plugin registers it (see PR #17 for context on the broader meta-key REST exposure issue).
+- This tool internally bypasses the response trimming added in PR #16 so it can read `yoast_head_json`. The trim still applies to all other tools.
 
 #### Universal Content Operations
 

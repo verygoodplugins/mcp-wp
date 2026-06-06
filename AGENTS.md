@@ -39,7 +39,7 @@ WORDPRESS_PASSWORD=wp_app_password
 ```
 
 #### Multi-Site Configuration
-For managing multiple WordPress sites (numbered config, read in `src/config/site-manager.ts:41`):
+For managing multiple WordPress sites (numbered config, read in `src/config/site-manager.ts:48`):
 ```env
 # Site 1 (Production)
 WORDPRESS_1_URL=https://production-site.com
@@ -98,7 +98,7 @@ The app password can be generated from WordPress admin panel following the [Appl
    - Each WordPress entity (posts, pages, media, etc.) has its own module
    - Each module exports a tools array and a handlers object
    - Tools use Zod schemas for input validation and type safety
-   - All tools support an optional `site_id` parameter for multi-site support
+   - The unified content tools (and the `get_site`/`test_site` site-management tools) accept an optional `site_id` parameter for multi-site targeting; other tool modules operate on the default site
    - All tools are aggregated in `src/tools/index.ts` (`allTools` / `toolHandlers`)
 
 5. **CLI Launcher (`src/cli.ts`)**:
@@ -222,7 +222,7 @@ All taxonomy operations use a single `taxonomy` parameter:
 ```
 
 #### Multi-Site Support
-All tools accept an optional `site_id` parameter to target specific sites:
+The unified content tools (and the `get_site`/`test_site` site-management tools) accept an optional `site_id` parameter to target a specific site:
 ```json
 {
   "content_type": "post",

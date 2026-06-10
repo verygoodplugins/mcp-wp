@@ -16,13 +16,16 @@ interface WPContent {
   link: string;
   title: {
     rendered: string;
+    raw?: string;
   };
   content: {
     rendered: string;
+    raw?: string;
     protected: boolean;
   };
   excerpt: {
     rendered: string;
+    raw?: string;
     protected: boolean;
   };
   author: number;

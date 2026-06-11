@@ -93,7 +93,8 @@ async function getPostTypes(forceRefresh = false, siteId?: string) {
 }
 
 // Helper function to get the correct endpoint for a content type
-async function getContentEndpoint(contentType: string, siteId?: string): Promise<string> {
+// Exported for reuse by unified-taxonomies.ts (assign_terms_to_content / get_content_terms)
+export async function getContentEndpoint(contentType: string, siteId?: string): Promise<string> {
   // Quick return for standard types
   const standardMap: Record<string, string> = {
     'post': 'posts',

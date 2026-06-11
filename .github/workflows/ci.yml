@@ -14,7 +14,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
+      # package-lock.json is gitignored in this repo, so no npm ci / cache
+      - run: npm install
       - run: npx tsc --noEmit
       - run: npm run build

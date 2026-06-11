@@ -35,10 +35,10 @@ Handles ALL content types (posts, pages, custom post types) with a single set of
 - `list_content`: List any content type with filtering and pagination
 - `get_content`: Get specific content by ID and type
 - `create_content`: Create new content of any type
-- `update_content`: Update existing content of any type
+- `update_content`: Update existing content of any type, including targeted partial edits
 - `delete_content`: Delete content of any type
 - `discover_content_types`: Find all available content types on your site
-- `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL
+- `find_content_by_url`: Smart URL resolver that can find and optionally update content from any WordPress URL, including targeted partial edits
 - `get_content_by_slug`: Search by slug across all content types
 
 ### **Unified Taxonomy Management** (8 tools)
@@ -59,9 +59,10 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - **Media:**
   - `list_media`: List all media items (supports pagination and searching).
   - `get_media`: Retrieve a specific media item by ID.
-  - `create_media`: Create a new media item from a URL.
+  - `create_media`: Create a new media item from a URL or local file path.
   - `update_media`: Update an existing media item.
   - `delete_media`: Delete a media item.
+  - `edit_media`: Legacy alias for `update_media` kept for backward compatibility.
 - **Users:**
   - `list_users`: List all users with filtering, sorting, and pagination options.
   - `get_user`: Retrieve a specific user by ID.
@@ -88,6 +89,39 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 
 ### **Key Advantages**
 
+#### Media Upload Workflows
+
+Upload a local screenshot from the same machine running the MCP server:
+
+```json
+{
+  "file_path": "./screenshots/homepage.png",
+  "title": "Homepage Screenshot",
+  "alt_text": "Homepage screenshot showing the hero section"
+}
+```
+
+Upload media from a remote URL:
+
+```json
+{
+  "source_url": "https://example.com/assets/hero-image.png",
+  "title": "Hero Image",
+  "caption": "Imported from the design system"
+}
+```
+
+Use the returned media ID as featured media on new content:
+
+```json
+{
+  "content_type": "post",
+  "title": "Release Notes",
+  "content": "<p>Launch summary...</p>",
+  "featured_media": 123
+}
+```
+
 #### Smart URL Resolution
 
 The `find_content_by_url` tool can:
@@ -110,6 +144,56 @@ All content operations use a single `content_type` parameter:
 }
 ```
 
+#### Targeted Content Edits
+
+`update_content` and `find_content_by_url.update_fields` can patch the existing raw WordPress content without resending the full document.
+
+To make exact matching easier, `get_content` and `find_content_by_url` both accept `include_raw_content: true`. When enabled, the response is fetched with WordPress edit context and includes a top-level `content_raw` field that matches what `content_edit.target_text` needs.
+
+```json
+{
+  "content_type": "page",
+  "id": 7,
+  "include_raw_content": true
+}
+```
+
+Append a short release note to the end of a post:
+
+```json
+{
+  "content_type": "post",
+  "id": 42,
+  "content_edit": {
+    "operation": "append",
+    "value": "\n<p>Update: Early access is now open.</p>",
+    "content_format": "html"
+  }
+}
+```
+
+Replace a unique HTML fragment or marker comment in place:
+
+```json
+{
+  "content_type": "page",
+  "id": 7,
+  "content_edit": {
+    "operation": "replace",
+    "target_text": "<!-- pricing-card -->\n<p>Old price</p>\n<!-- /pricing-card -->",
+    "value": "<!-- pricing-card -->\n<p>New price</p>\n<!-- /pricing-card -->",
+    "content_format": "html"
+  }
+}
+```
+
+Notes:
+
+- Rendered WordPress HTML can differ from `content.raw` because entities may be escaped and markup may be expanded, so use `include_raw_content` when you need an exact `target_text`.
+- `target_text` matches the stored raw WordPress content exactly.
+- If the same `target_text` appears multiple times, pass `occurrence` to choose the 1-based match.
+- For posts stored as Gutenberg blocks, set `content_edit.convert_to_blocks` when inserting Markdown or HTML that should become blocks.
+
 #### Universal Taxonomy Operations
 
 All taxonomy operations use a single `taxonomy` parameter:
@@ -122,6 +206,13 @@ All taxonomy operations use a single `taxonomy` parameter:
   "taxonomy": "skill" // for custom taxonomies
 }
 ```
+
+The `taxonomy` parameter accepts either the taxonomy slug or its `rest_base`
+(they can differ for custom taxonomies, e.g. slug `documentation_category`
+with rest_base `documentation-categories`). Tools resolve the identifier via
+`/wp/v2/taxonomies` and error on unknown taxonomies instead of guessing.
+`assign_terms_to_content` verifies the write against the WordPress response
+and reports an error if the terms were not actually saved.
 
 ## Configuration
 
@@ -360,7 +451,7 @@ src/
     ├── site-management.ts      # Site management (3 tools)
     ├── unified-content.ts      # Universal content management (8 tools)
     ├── unified-taxonomies.ts   # Universal taxonomy management (8 tools)
-    ├── media.ts               # Media management (~5 tools)
+    ├── media.ts               # Media management (5 canonical tools + edit_media alias)
     ├── users.ts               # User management (~5 tools)
     ├── comments.ts            # Comment management (~5 tools)
     ├── plugins.ts             # Plugin management (~5 tools)

@@ -7,7 +7,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { allTools, toolHandlers } from './tools/index.js';
 import { z } from 'zod';
-import { zodToJsonSchema } from 'zod-to-json-schema';
 
 
 // Create MCP server instance.
@@ -43,8 +42,12 @@ for (const tool of allTools) {
     
     // Tool modules define inputSchema.properties as zod shapes (see CLAUDE.md);
     // passing raw JSON Schema here collapses the published schema to {}.
-    const zodSchema = z.object(tool.inputSchema.properties as z.ZodRawShape);
-    server.tool(tool.name, tool.description ?? '', zodSchema.shape, wrappedHandler)
+    const rawShape = tool.inputSchema.properties as z.ZodRawShape;
+    // Cast bypasses TS2589: server.tool's generic resolves ShapeOutput<Args>
+    // against the SDK's z3|z4 union schema type, exploding instantiation depth.
+    (server.tool as (name: string, description: string, schema: z.ZodRawShape, cb: typeof wrappedHandler) => unknown)(
+        tool.name, tool.description ?? '', rawShape, wrappedHandler
+    );
 
 }
 

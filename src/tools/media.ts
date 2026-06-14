@@ -255,7 +255,8 @@ async function loadUploadFromUrl(sourceUrl: string, explicitTitle?: string): Pro
   }
 
   const response = await axios.get<ArrayBuffer>(sourceUrl, { responseType: 'arraybuffer' });
-  const mimeType = normalizeMimeType(response.headers['content-type']);
+  const contentTypeHeader = response.headers['content-type'];
+  const mimeType = normalizeMimeType(typeof contentTypeHeader === 'string' ? contentTypeHeader : undefined);
   const originalFilename = deriveFilenameFromUrl(sourceUrl, mimeType);
   const filename = buildUploadFilename(originalFilename, explicitTitle);
 

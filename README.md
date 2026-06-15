@@ -333,6 +333,26 @@ LLM almost never needs but pays tokens for on every request.
 - Override the list with the `MCP_WP_STRIP_FIELDS` environment variable
   (comma-separated). Set it to an empty string to disable trimming entirely.
 
+## Meta field limitations
+
+The `meta` parameter on `create_content`, `update_content`, and `find_content_by_url` (with `update_fields.meta`) forwards directly to the WordPress `/wp/v2/{type}/{id}` endpoint. WordPress core **silently drops** any meta key that has not been registered via `register_post_meta(..., ['show_in_rest' => true])`. The MCP server has no allowlist of its own — it relies on WordPress to enforce which keys persist.
+
+This means SEO plugin keys are **not writable through this MCP server by default**, including:
+
+- **Yoast SEO**: `_yoast_wpseo_*` (focuskw, metadesc, title, opengraph-*, twitter-*, canonical, meta-robots-*, primary_category, …)
+- **Rank Math**: `rank_math_*` (title, description, focus_keyword, robots, facebook_*, twitter_*, primary_category, …)
+- **All in One SEO (v4+)**: stores SEO data in a custom table (`wp_aioseo_posts`), not `wp_postmeta` — not addressable via the `meta` field by any means.
+
+The server detects when WordPress dropped any keys you sent and prepends a `Warning:` block to the tool result listing them. This makes the silent drop visible to the LLM caller, but it cannot make WordPress accept the keys.
+
+To enable SEO meta writes, install a small WordPress companion plugin that calls `register_post_meta` for each desired key with `show_in_rest => true` and an appropriate `auth_callback`. A separate `mcp-wp-seo-bridge` plugin is being scoped to do exactly this.
+
+### Which keys DO work today
+
+Plugin keys that the plugin author already registered for REST — for example Genesis layout meta (`_genesis_layout`), WP Recipe Maker fields (`wprm-*`), or ConvertKit's `_wp_convertkit_post_meta`. To check which keys round-trip on your site, write a test value via `update_content` and inspect the `meta` block in the response — if the key appears, it persisted.
+
+The same limitation applies to term meta on `unified-taxonomies` tools (`create_term`, `update_term`).
+
 ## Enabling SQL Query Tool (Optional)
 
 The `execute_sql_query` tool allows you to run read-only SQL queries against your WordPress database. This is an optional feature that requires adding a custom REST API endpoint to your WordPress site.

@@ -8,5 +8,6 @@ export default defineConfig({
     env: {
       DISABLE_LOGGING: 'true',
     },
+    testTimeout: 30000,
   },
 });

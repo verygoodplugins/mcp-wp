@@ -406,6 +406,44 @@ async function processContent(
   return htmlContent;
 }
 
+// Return the meta keys that were sent in the request but don't appear in
+// the WP response's `meta` object. WordPress silently drops unregistered
+// meta keys on writes to /wp/v2/{type}/{id}, so absence in the echoed
+// response is the signal that a key wasn't persisted. The `responseData`
+// is the parsed WP REST response; we look for `responseData.meta` as the
+// echoed object. If the response shape is unexpected (no meta object,
+// or meta returned as an array rather than the usual keyed object), we
+// treat every sent key as dropped — conservative, but matches the
+// underlying "we can't confirm it stuck" signal.
+export function detectDroppedMetaKeys(
+  sent: Record<string, unknown> | undefined,
+  responseData: unknown
+): string[] {
+  if (!sent) return [];
+  const sentKeys = Object.keys(sent);
+  if (sentKeys.length === 0) return [];
+  if (!responseData || typeof responseData !== 'object' || Array.isArray(responseData)) {
+    return sentKeys;
+  }
+  const returnedMeta = (responseData as Record<string, unknown>).meta;
+  if (!returnedMeta || typeof returnedMeta !== 'object' || Array.isArray(returnedMeta)) {
+    return sentKeys;
+  }
+  const returnedKeys = new Set(Object.keys(returnedMeta as Record<string, unknown>));
+  return sentKeys.filter(k => !returnedKeys.has(k));
+}
+
+export function buildDroppedMetaWarning(droppedKeys: string[]): string {
+  return (
+    `Warning: WordPress did not persist these meta keys: ${droppedKeys.join(', ')}. ` +
+    `This usually means they are not registered for REST exposure via ` +
+    `register_post_meta(..., show_in_rest => true). Common culprits are SEO ` +
+    `plugin keys (Yoast _yoast_wpseo_*, Rank Math rank_math_*, AIOSEO _aioseo_*) ` +
+    `which the plugins do not expose on the core /wp/v2/ endpoints by default. ` +
+    `See README "Meta field limitations" for context.`
+  );
+}
+
 // Schema definitions
 const listContentSchema = z.object({
   content_type: z.string().describe("The content type slug (e.g., 'post', 'page', 'product', 'documentation')"),
@@ -683,13 +721,19 @@ export const unifiedContentHandlers = {
       });
       
       const response = await makeWordPressRequest('POST', endpoint, contentData, { siteId: params.site_id });
-      
+
+      const responseContent: any[] = [{
+        type: 'text',
+        text: JSON.stringify(response, null, 2)
+      }];
+      const droppedMeta = detectDroppedMetaKeys(params.meta, response);
+      if (droppedMeta.length > 0) {
+        responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+      }
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
-          }],
+          content: responseContent,
           isError: false
         }
       };
@@ -743,22 +787,28 @@ export const unifiedContentHandlers = {
       }
       
       const response = await makeWordPressRequest('POST', `${endpoint}/${params.id}`, updateData, { siteId: params.site_id });
-      
+
+      const responseContent: any[] = [{
+        type: 'text',
+        text: JSON.stringify(response, null, 2)
+      }];
+      const droppedMeta = detectDroppedMetaKeys(params.meta, response);
+      if (droppedMeta.length > 0) {
+        responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+      }
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
-          }],
+          content: responseContent,
           isError: false
         }
       };
     } catch (error: any) {
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error updating content: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error updating content: ${error.message}`
           }],
           isError: true
         }
@@ -907,19 +957,25 @@ export const unifiedContentHandlers = {
 
           const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
 
+          const responseContent: any[] = [{
+            type: 'text',
+            text: JSON.stringify({
+              found: true,
+              content_type: contentType,
+              content_id: content.id,
+              original_url: params.url,
+              updated: true,
+              content: updatedContent
+            }, null, 2)
+          }];
+          const droppedMeta = detectDroppedMetaKeys(params.update_fields.meta, updatedContent);
+          if (droppedMeta.length > 0) {
+            responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+          }
+
           return {
             toolResult: {
-              content: [{
-                type: 'text',
-                text: JSON.stringify({
-                  found: true,
-                  content_type: contentType,
-                  content_id: content.id,
-                  original_url: params.url,
-                  updated: true,
-                  content: updatedContent
-                }, null, 2)
-              }],
+              content: responseContent,
               isError: false
             }
           };
@@ -966,19 +1022,25 @@ export const unifiedContentHandlers = {
 
         const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
 
+        const responseContent: any[] = [{
+          type: 'text',
+          text: JSON.stringify({
+            found: true,
+            content_type: contentType,
+            content_id: content.id,
+            original_url: params.url,
+            updated: true,
+            content: updatedContent
+          }, null, 2)
+        }];
+        const droppedMeta = detectDroppedMetaKeys(params.update_fields.meta, updatedContent);
+        if (droppedMeta.length > 0) {
+          responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+        }
+
         return {
           toolResult: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                found: true,
-                content_type: contentType,
-                content_id: content.id,
-                original_url: params.url,
-                updated: true,
-                content: updatedContent
-              }, null, 2)
-            }],
+            content: responseContent,
             isError: false
           }
         };

@@ -209,6 +209,51 @@ async function findContentAcrossTypes(slug: string, contentTypes?: string[], sit
   return null;
 }
 
+// URL → post-type hint table used when resolving a public WP URL to its content type.
+const URL_PATH_TYPE_HINTS: Record<string, string[]> = {
+  'documentation': ['documentation', 'docs', 'doc'],
+  'docs': ['documentation', 'docs', 'doc'],
+  'products': ['product'],
+  'portfolio': ['portfolio', 'project'],
+  'services': ['service'],
+  'testimonials': ['testimonial'],
+  'team': ['team_member', 'staff'],
+  'events': ['event'],
+  'courses': ['course', 'lesson']
+};
+
+/**
+ * Resolve a public WordPress URL to the underlying post by parsing the slug
+ * and path hints, searching priority content types first and then falling back
+ * to all available content types. Returns null when no content matches.
+ *
+ * Throws when the URL cannot be parsed into a slug — callers can surface that
+ * as a distinct error from the not-found case.
+ */
+export async function findContentByUrl(
+  url: string,
+  siteId?: string
+): Promise<{ content: any; contentType: string } | null> {
+  const { slug, pathHints } = parseUrl(url);
+
+  if (!slug) {
+    throw new Error('Could not extract slug from URL');
+  }
+
+  const priorityTypes: string[] = [];
+  for (const hint of pathHints) {
+    const mapped = URL_PATH_TYPE_HINTS[hint.toLowerCase()];
+    if (mapped) priorityTypes.push(...mapped);
+  }
+  priorityTypes.push('post', 'page');
+  const typesToSearch = [...new Set(priorityTypes)];
+
+  const result = await findContentAcrossTypes(slug, typesToSearch, siteId);
+  if (result) return result;
+
+  return findContentAcrossTypes(slug, undefined, siteId);
+}
+
 // Content format types
 type ContentFormat = 'auto' | 'markdown' | 'html' | 'blocks';
 type DetectedFormat = 'blocks' | 'html' | 'markdown' | 'text';
@@ -885,129 +930,20 @@ export const unifiedContentHandlers = {
 
   find_content_by_url: async (params: FindContentByUrlParams) => {
     try {
-      const { slug, pathHints } = parseUrl(params.url);
-      
-      if (!slug) {
-        throw new Error('Could not extract slug from URL');
-      }
-      
-      logToFile(`Searching for content with slug: ${slug}, path hints: ${pathHints.join('/')}`);
-      
-      // Try to guess content types based on URL structure
-      const priorityTypes: string[] = [];
-      
-      // Common URL patterns to content type mappings
-      const pathMappings: Record<string, string[]> = {
-        'documentation': ['documentation', 'docs', 'doc'],
-        'docs': ['documentation', 'docs', 'doc'],
-        'products': ['product'],
-        'portfolio': ['portfolio', 'project'],
-        'services': ['service'],
-        'testimonials': ['testimonial'],
-        'team': ['team_member', 'staff'],
-        'events': ['event'],
-        'courses': ['course', 'lesson']
-      };
-      
-      // Check path hints for potential content types
-      for (const hint of pathHints) {
-        const mappedTypes = pathMappings[hint.toLowerCase()];
-        if (mappedTypes) {
-          priorityTypes.push(...mappedTypes);
-        }
-      }
-      
-      // Always check standard content types as fallback
-      priorityTypes.push('post', 'page');
-      
-      // Remove duplicates
-      const typesToSearch = [...new Set(priorityTypes)];
-      
-      // Find the content
-      const result = await findContentAcrossTypes(slug, typesToSearch, params.site_id);
-      
+      const result = await findContentByUrl(params.url, params.site_id);
+
       if (!result) {
-        // If not found in priority types, search all types
-        const allResult = await findContentAcrossTypes(slug, undefined, params.site_id);
-        if (!allResult) {
-          throw new Error(`No content found with URL: ${params.url}`);
-        }
-        
-        const { content, contentType } = allResult;
-        
-        // Update if requested
-        if (params.update_fields) {
-          const endpoint = await getContentEndpoint(contentType, params.site_id);
-
-          const updateData: any = {};
-          if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
-          if (params.update_fields.content !== undefined) {
-            // Process content format (markdown -> HTML, optional block conversion)
-            updateData.content = await processContent(
-              params.update_fields.content,
-              params.update_fields.content_format || 'auto',
-              params.update_fields.convert_to_blocks || false
-            );
-          }
-          if (params.update_fields.status !== undefined) updateData.status = params.update_fields.status;
-          if (params.update_fields.meta !== undefined) updateData.meta = params.update_fields.meta;
-          if (params.update_fields.custom_fields !== undefined) {
-            Object.assign(updateData, params.update_fields.custom_fields);
-          }
-
-          const updatedContent = await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
-
-          const responseContent: any[] = [{
-            type: 'text',
-            text: JSON.stringify({
-              found: true,
-              content_type: contentType,
-              content_id: content.id,
-              original_url: params.url,
-              updated: true,
-              content: updatedContent
-            }, null, 2)
-          }];
-          const droppedMeta = detectDroppedMetaKeys(params.update_fields.meta, updatedContent);
-          if (droppedMeta.length > 0) {
-            responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
-          }
-
-          return {
-            toolResult: {
-              content: responseContent,
-              isError: false
-            }
-          };
-        }
-
-        return {
-          toolResult: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                found: true,
-                content_type: contentType,
-                content_id: content.id,
-                original_url: params.url,
-                content: content
-              }, null, 2)
-            }],
-            isError: false
-          }
-        };
+        throw new Error(`No content found with URL: ${params.url}`);
       }
 
       const { content, contentType } = result;
 
-      // Update if requested
       if (params.update_fields) {
         const endpoint = await getContentEndpoint(contentType, params.site_id);
 
         const updateData: any = {};
         if (params.update_fields.title !== undefined) updateData.title = params.update_fields.title;
         if (params.update_fields.content !== undefined) {
-          // Process content format (markdown -> HTML, optional block conversion)
           updateData.content = await processContent(
             params.update_fields.content,
             params.update_fields.content_format || 'auto',
@@ -1064,9 +1000,9 @@ export const unifiedContentHandlers = {
     } catch (error: any) {
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error finding content by URL: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error finding content by URL: ${error.message}`
           }],
           isError: true
         }

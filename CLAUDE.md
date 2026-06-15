@@ -128,10 +128,10 @@ Handles ALL content types (posts, pages, custom post types) with a single set of
 - `list_content` - List any content type with filtering and pagination
 - `get_content` - Get specific content by ID and type
 - `create_content` - Create new content of any type
-- `update_content` - Update existing content of any type
+- `update_content` - Update existing content of any type, including targeted partial edits
 - `delete_content` - Delete content of any type
 - `discover_content_types` - Find all available content types
-- `find_content_by_url` - Smart URL resolver with optional update
+- `find_content_by_url` - Smart URL resolver with optional full or targeted update
 - `get_content_by_slug` - Search by slug across content types
 
 #### **Unified Taxonomy Tools** (`unified-taxonomies.ts`) - 8 tools
@@ -184,6 +184,26 @@ All content operations use a single `content_type` parameter:
   "content_type": "documentation" // for custom post types
 }
 ```
+
+Targeted content edits are also supported through `content_edit` on `update_content` and `find_content_by_url.update_fields`:
+
+```json
+{
+  "content_type": "post",
+  "id": 42,
+  "content_edit": {
+    "operation": "append",
+    "value": "\n<p>Update: Early access is now open.</p>",
+    "content_format": "html"
+  }
+}
+```
+
+To retrieve an exact target string for those edits, `get_content` and `find_content_by_url` also support `include_raw_content: true`, which fetches the item with WordPress edit context and returns a top-level `content_raw` field.
+
+Rendered WordPress HTML can differ from `content.raw`, so exact partial-edit targeting should use the raw value rather than copied rendered markup.
+
+For targeted operations, `target_text` must match the stored raw WordPress content exactly. If it appears multiple times, provide `occurrence` to choose the 1-based match.
 
 #### Unified Taxonomy Management
 All taxonomy operations use a single `taxonomy` parameter:

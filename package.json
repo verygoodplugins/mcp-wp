@@ -1,6 +1,6 @@
 {
   "name": "@instawp/mcp-wp",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "A Model Context Protocol server for interacting with WordPress.",
   "type": "module",
   "main": "./build/server.js",
@@ -16,6 +16,8 @@
     "start": "node ./build/server.js",
     "dev": "tsx watch src/server.ts",
     "clean": "rimraf build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepare": "npm run build"
   },
   "keywords": [
@@ -43,7 +45,8 @@
     "@types/node": "^22.10.0",
     "rimraf": "^5.0.5",
     "tsx": "^4.7.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^2.1.9"
   },
   "publishConfig": {
     "access": "public"

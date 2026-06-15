@@ -209,6 +209,51 @@ async function findContentAcrossTypes(slug: string, contentTypes?: string[], sit
   return null;
 }
 
+// URL → post-type hint table used when resolving a public WP URL to its content type.
+const URL_PATH_TYPE_HINTS: Record<string, string[]> = {
+  'documentation': ['documentation', 'docs', 'doc'],
+  'docs': ['documentation', 'docs', 'doc'],
+  'products': ['product'],
+  'portfolio': ['portfolio', 'project'],
+  'services': ['service'],
+  'testimonials': ['testimonial'],
+  'team': ['team_member', 'staff'],
+  'events': ['event'],
+  'courses': ['course', 'lesson']
+};
+
+/**
+ * Resolve a public WordPress URL to the underlying post by parsing the slug
+ * and path hints, searching priority content types first and then falling back
+ * to all available content types. Returns null when no content matches.
+ *
+ * Throws when the URL cannot be parsed into a slug — callers can surface that
+ * as a distinct error from the not-found case.
+ */
+export async function findContentByUrl(
+  url: string,
+  siteId?: string
+): Promise<{ content: any; contentType: string } | null> {
+  const { slug, pathHints } = parseUrl(url);
+
+  if (!slug) {
+    throw new Error('Could not extract slug from URL');
+  }
+
+  const priorityTypes: string[] = [];
+  for (const hint of pathHints) {
+    const mapped = URL_PATH_TYPE_HINTS[hint.toLowerCase()];
+    if (mapped) priorityTypes.push(...mapped);
+  }
+  priorityTypes.push('post', 'page');
+  const typesToSearch = [...new Set(priorityTypes)];
+
+  const result = await findContentAcrossTypes(slug, typesToSearch, siteId);
+  if (result) return result;
+
+  return findContentAcrossTypes(slug, undefined, siteId);
+}
+
 // Content format types
 type ContentFormat = 'auto' | 'markdown' | 'html' | 'blocks';
 type DetectedFormat = 'blocks' | 'html' | 'markdown' | 'text';
@@ -434,6 +479,45 @@ async function processContent(
 
   return htmlContent;
 }
+
+// Return the meta keys that were sent in the request but don't appear in
+// the WP response's `meta` object. WordPress silently drops unregistered
+// meta keys on writes to /wp/v2/{type}/{id}, so absence in the echoed
+// response is the signal that a key wasn't persisted. The `responseData`
+// is the parsed WP REST response; we look for `responseData.meta` as the
+// echoed object. If the response shape is unexpected (no meta object,
+// or meta returned as an array rather than the usual keyed object), we
+// treat every sent key as dropped — conservative, but matches the
+// underlying "we can't confirm it stuck" signal.
+export function detectDroppedMetaKeys(
+  sent: Record<string, unknown> | undefined,
+  responseData: unknown
+): string[] {
+  if (!sent) return [];
+  const sentKeys = Object.keys(sent);
+  if (sentKeys.length === 0) return [];
+  if (!responseData || typeof responseData !== 'object' || Array.isArray(responseData)) {
+    return sentKeys;
+  }
+  const returnedMeta = (responseData as Record<string, unknown>).meta;
+  if (!returnedMeta || typeof returnedMeta !== 'object' || Array.isArray(returnedMeta)) {
+    return sentKeys;
+  }
+  const returnedKeys = new Set(Object.keys(returnedMeta as Record<string, unknown>));
+  return sentKeys.filter(k => !returnedKeys.has(k));
+}
+
+export function buildDroppedMetaWarning(droppedKeys: string[]): string {
+  return (
+    `Warning: WordPress did not persist these meta keys: ${droppedKeys.join(', ')}. ` +
+    `This usually means they are not registered for REST exposure via ` +
+    `register_post_meta(..., show_in_rest => true). Common culprits are SEO ` +
+    `plugin keys (Yoast _yoast_wpseo_*, Rank Math rank_math_*, AIOSEO _aioseo_*) ` +
+    `which the plugins do not expose on the core /wp/v2/ endpoints by default. ` +
+    `See README "Meta field limitations" for context.`
+  );
+}
+
 
 function validateContentEdit(edit: ContentEditParams) {
   const targetedOperations = new Set<ContentEditOperation>(['insert_before', 'insert_after', 'replace']);
@@ -716,7 +800,8 @@ const updateContentSchemaShape = {
     "Convert content to Gutenberg blocks. Recommended for sites using block editor."
   ),
   content_edit: contentEditSchema.optional().describe(
-    "Apply a targeted edit to the existing raw content instead of replacing the whole document"
+    "Apply a targeted edit to the existing raw content instead of replacing the whole document. " +
+    "Mutually exclusive with `content` — provide one or the other, not both."
   ),
   status: z.string().optional().describe("Content status"),
   excerpt: z.string().optional().describe("Content excerpt"),
@@ -732,15 +817,12 @@ const updateContentSchemaShape = {
   custom_fields: z.record(z.any()).optional().describe("Custom fields")
 };
 
-const updateContentSchema = z.object(updateContentSchemaShape).superRefine((value, ctx) => {
-  if (value.content !== undefined && value.content_edit !== undefined) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Provide either content or content_edit, not both",
-      path: ['content_edit']
-    });
-  }
-});
+// NOTE: mutual exclusion of `content` and `content_edit` is enforced at runtime
+// in resolveUpdatedContent(). A top-level superRefine here would be dead code:
+// the MCP server registers tools from the raw shape (updateContentSchemaShape),
+// so an outer-object refinement never reaches the validation layer. The
+// constraint is documented on the content_edit field description instead.
+const updateContentSchema = z.object(updateContentSchemaShape);
 
 const deleteContentSchema = z.object({
   content_type: z.string().describe("The content type slug"),
@@ -762,7 +844,8 @@ const findContentByUrlUpdateFieldsShape = {
   content_format: z.enum(['auto', 'markdown', 'html', 'blocks']).optional().default('auto'),
   convert_to_blocks: z.boolean().optional().default(false),
   content_edit: contentEditSchema.optional().describe(
-    "Apply a targeted edit to the existing raw content instead of replacing the whole document"
+    "Apply a targeted edit to the existing raw content instead of replacing the whole document. " +
+    "Mutually exclusive with `content` — provide one or the other, not both."
   ),
   status: z.string().optional(),
   meta: z.record(z.any()).optional(),
@@ -775,15 +858,10 @@ const findContentByUrlSchema = z.object({
   include_raw_content: z.boolean().optional().default(false).describe(
     "Fetch the matched content with WordPress edit context and include a top-level content_raw field for exact matching"
   ),
-  update_fields: z.object(findContentByUrlUpdateFieldsShape).superRefine((value, ctx) => {
-    if (value.content !== undefined && value.content_edit !== undefined) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Provide either content or content_edit, not both",
-        path: ['content_edit']
-      });
-    }
-  }).optional().describe("Optional fields to update after finding the content")
+  // Mutual exclusion of content/content_edit is enforced at runtime in
+  // resolveUpdatedContent() and documented on the content_edit field; an outer
+  // superRefine here is dead code (tools register from the raw shape).
+  update_fields: z.object(findContentByUrlUpdateFieldsShape).optional().describe("Optional fields to update after finding the content")
 });
 
 const getContentBySlugSchema = z.object({
@@ -965,13 +1043,19 @@ export const unifiedContentHandlers = {
       });
       
       const response = await makeWordPressRequest('POST', endpoint, contentData, { siteId: params.site_id });
-      
+
+      const responseContent: any[] = [{
+        type: 'text',
+        text: JSON.stringify(response, null, 2)
+      }];
+      const droppedMeta = detectDroppedMetaKeys(params.meta, response);
+      if (droppedMeta.length > 0) {
+        responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+      }
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
-          }],
+          content: responseContent,
           isError: false
         }
       };
@@ -997,22 +1081,28 @@ export const unifiedContentHandlers = {
       const updateData = await buildContentUpdateData(params, endpoint, params.id, params.site_id);
       
       const response = await makeWordPressRequest('POST', `${endpoint}/${params.id}`, updateData, { siteId: params.site_id });
-      
+
+      const responseContent: any[] = [{
+        type: 'text',
+        text: JSON.stringify(response, null, 2)
+      }];
+      const droppedMeta = detectDroppedMetaKeys(params.meta, response);
+      if (droppedMeta.length > 0) {
+        responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+      }
+
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: JSON.stringify(response, null, 2) 
-          }],
+          content: responseContent,
           isError: false
         }
       };
     } catch (error: any) {
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error updating content: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error updating content: ${error.message}`
           }],
           isError: true
         }
@@ -1089,115 +1179,14 @@ export const unifiedContentHandlers = {
 
   find_content_by_url: async (params: FindContentByUrlParams) => {
     try {
-      const { slug, pathHints } = parseUrl(params.url);
-      
-      if (!slug) {
-        throw new Error('Could not extract slug from URL');
-      }
-      
-      logToFile(`Searching for content with slug: ${slug}, path hints: ${pathHints.join('/')}`);
-      
-      // Try to guess content types based on URL structure
-      const priorityTypes: string[] = [];
-      
-      // Common URL patterns to content type mappings
-      const pathMappings: Record<string, string[]> = {
-        'documentation': ['documentation', 'docs', 'doc'],
-        'docs': ['documentation', 'docs', 'doc'],
-        'products': ['product'],
-        'portfolio': ['portfolio', 'project'],
-        'services': ['service'],
-        'testimonials': ['testimonial'],
-        'team': ['team_member', 'staff'],
-        'events': ['event'],
-        'courses': ['course', 'lesson']
-      };
-      
-      // Check path hints for potential content types
-      for (const hint of pathHints) {
-        const mappedTypes = pathMappings[hint.toLowerCase()];
-        if (mappedTypes) {
-          priorityTypes.push(...mappedTypes);
-        }
-      }
-      
-      // Always check standard content types as fallback
-      priorityTypes.push('post', 'page');
-      
-      // Remove duplicates
-      const typesToSearch = [...new Set(priorityTypes)];
-      
-      // Find the content
-      const result = await findContentAcrossTypes(slug, typesToSearch, params.site_id);
-      
+      const result = await findContentByUrl(params.url, params.site_id);
+
       if (!result) {
-        // If not found in priority types, search all types
-        const allResult = await findContentAcrossTypes(slug, undefined, params.site_id);
-        if (!allResult) {
-          throw new Error(`No content found with URL: ${params.url}`);
-        }
-        
-        const { content, contentType } = allResult;
-        
-        // Update if requested
-        if (params.update_fields) {
-          const endpoint = await getContentEndpoint(contentType, params.site_id);
-          const updateData = await buildContentUpdateData(
-            params.update_fields,
-            endpoint,
-            content.id,
-            params.site_id
-          );
-
-          await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
-          const responseContent = params.include_raw_content
-            ? await fetchContentById(endpoint, content.id, params.site_id, true)
-            : await fetchContentById(endpoint, content.id, params.site_id, false);
-
-          return {
-            toolResult: {
-              content: [{
-                type: 'text',
-                text: JSON.stringify({
-                  found: true,
-                  content_type: contentType,
-                  content_id: content.id,
-                  original_url: params.url,
-                  updated: true,
-                  content: responseContent,
-                  content_raw: params.include_raw_content ? responseContent.content_raw : undefined
-                }, null, 2)
-              }],
-              isError: false
-            }
-          };
-        }
-
-        const responseContent = params.include_raw_content
-          ? await fetchContentById(await getContentEndpoint(contentType, params.site_id), content.id, params.site_id, true)
-          : content;
-
-        return {
-          toolResult: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                found: true,
-                content_type: contentType,
-                content_id: content.id,
-                original_url: params.url,
-                content: responseContent,
-                content_raw: params.include_raw_content ? responseContent.content_raw : undefined
-              }, null, 2)
-            }],
-            isError: false
-          }
-        };
+        throw new Error(`No content found with URL: ${params.url}`);
       }
 
       const { content, contentType } = result;
 
-      // Update if requested
       if (params.update_fields) {
         const endpoint = await getContentEndpoint(contentType, params.site_id);
         const updateData = await buildContentUpdateData(
@@ -1208,24 +1197,28 @@ export const unifiedContentHandlers = {
         );
 
         await makeWordPressRequest('POST', `${endpoint}/${content.id}`, updateData, { siteId: params.site_id });
-        const responseContent = params.include_raw_content
-          ? await fetchContentById(endpoint, content.id, params.site_id, true)
-          : await fetchContentById(endpoint, content.id, params.site_id, false);
+        const updatedContent = await fetchContentById(endpoint, content.id, params.site_id, params.include_raw_content || false);
+
+        const responseContent: any[] = [{
+          type: 'text',
+          text: JSON.stringify({
+            found: true,
+            content_type: contentType,
+            content_id: content.id,
+            original_url: params.url,
+            updated: true,
+            content: updatedContent,
+            content_raw: params.include_raw_content ? updatedContent.content_raw : undefined
+          }, null, 2)
+        }];
+        const droppedMeta = detectDroppedMetaKeys(params.update_fields.meta, updatedContent);
+        if (droppedMeta.length > 0) {
+          responseContent.unshift({ type: 'text', text: buildDroppedMetaWarning(droppedMeta) });
+        }
 
         return {
           toolResult: {
-            content: [{
-              type: 'text',
-              text: JSON.stringify({
-                found: true,
-                content_type: contentType,
-                content_id: content.id,
-                original_url: params.url,
-                updated: true,
-                content: responseContent,
-                content_raw: params.include_raw_content ? responseContent.content_raw : undefined
-              }, null, 2)
-            }],
+            content: responseContent,
             isError: false
           }
         };
@@ -1254,9 +1247,9 @@ export const unifiedContentHandlers = {
     } catch (error: any) {
       return {
         toolResult: {
-          content: [{ 
-            type: 'text', 
-            text: `Error finding content by URL: ${error.message}` 
+          content: [{
+            type: 'text',
+            text: `Error finding content by URL: ${error.message}`
           }],
           isError: true
         }

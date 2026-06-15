@@ -6,6 +6,46 @@ import { siteManager } from './config/site-manager.js';
 // Legacy global WordPress API client instance for backward compatibility
 let wpClient: AxiosInstance;
 
+const DEFAULT_STRIP_FIELDS = ['yoast_head', 'yoast_head_json'];
+
+/**
+ * Resolve the list of top-level fields to strip from WP REST responses.
+ * Reads MCP_WP_STRIP_FIELDS (comma-separated) and falls back to the default list.
+ * An empty string disables trimming.
+ */
+export function resolveStripFields(envValue?: string): string[] {
+  if (envValue === undefined) return DEFAULT_STRIP_FIELDS;
+  return envValue
+    .split(',')
+    .map(f => f.trim())
+    .filter(f => f.length > 0);
+}
+
+/**
+ * Pure function: return a shallow copy of `data` with `fields` removed at the
+ * top level. Arrays of objects are mapped; nested objects are left untouched.
+ * Non-object/non-array inputs (null, primitives) are returned as-is.
+ */
+export function trimResponseFields<T>(data: T, fields: string[]): T {
+  if (fields.length === 0) return data;
+  if (data === null || data === undefined) return data;
+
+  if (Array.isArray(data)) {
+    return data.map(item => trimResponseFields(item, fields)) as unknown as T;
+  }
+
+  if (typeof data === 'object') {
+    const fieldSet = new Set(fields);
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      if (!fieldSet.has(key)) out[key] = value;
+    }
+    return out as T;
+  }
+
+  return data;
+}
+
 /**
  * Initialize the WordPress API client with authentication
  * Now uses SiteManager for multi-site support
@@ -106,8 +146,10 @@ Status: ${response.status}
 Data: ${JSON.stringify(response.data, null, 2)}
 `;
     logToFile(responseLog, 'debug');
-    
-    return options?.rawResponse ? response : response.data;
+
+    if (options?.rawResponse) return response;
+    const stripFields = resolveStripFields(process.env.MCP_WP_STRIP_FIELDS);
+    return trimResponseFields(response.data, stripFields);
   } catch (error: any) {
     const errorLog = `
 ERROR:

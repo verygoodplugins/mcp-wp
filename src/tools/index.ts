@@ -9,8 +9,9 @@ import { pluginRepositoryTools, pluginRepositoryHandlers } from './plugin-reposi
 import { commentTools, commentHandlers } from './comments.js';
 import { sqlQueryTools, sqlQueryHandlers } from './sql-query.js';
 import { siteManagementTools, siteManagementHandlers } from './site-management.js';
+import { contentSummaryTools, contentSummaryHandlers } from './content-summary.js';
 
-// Combine all tools - significantly reduced from ~65 to ~42 tools
+// Combine all tools
 export const allTools: Tool[] = [
   ...unifiedContentTools,        // 8 tools (replaces posts, pages, custom-post-types)
   ...unifiedTaxonomyTools,       // 8 tools (replaces categories, custom-taxonomies)
@@ -20,7 +21,8 @@ export const allTools: Tool[] = [
   ...pluginRepositoryTools,     // ~2 tools
   ...commentTools,              // ~5 tools
   ...sqlQueryTools,             // 1 tool (database queries)
-  ...siteManagementTools        // 3 tools (multi-site support)
+  ...siteManagementTools,       // 3 tools (multi-site support)
+  ...contentSummaryTools        // 1 tool (audit/lookup summary)
 ];
 
 // Combine all handlers
@@ -33,5 +35,6 @@ export const toolHandlers = {
   ...pluginRepositoryHandlers,
   ...commentHandlers,
   ...sqlQueryHandlers,
-  ...siteManagementHandlers
+  ...siteManagementHandlers,
+  ...contentSummaryHandlers
 };

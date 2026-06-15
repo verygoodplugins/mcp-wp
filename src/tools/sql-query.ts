@@ -7,7 +7,7 @@ import { siteManager } from '../config/site-manager.js';
 // Schema for SQL query execution
 const executeSqlQuerySchema = z.object({
   query: z.string().describe('SQL query to execute (read-only queries: SELECT, WITH...SELECT, EXPLAIN only)'),
-  site_id: z.string().optional().describe('Site ID (for multi-site setups, e.g. "wp-fusion")')
+  site_id: z.string().optional().describe('Site ID for multi-site setups. Must match a configured site id (WORDPRESS_<n>_ID, e.g. "site1", or "default" for single-site). Domains and aliases are not resolved here; omit to use the default site.')
 });
 
 // Type definition

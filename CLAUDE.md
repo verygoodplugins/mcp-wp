@@ -196,6 +196,15 @@ All taxonomy operations use a single `taxonomy` parameter:
 }
 ```
 
+The `taxonomy` parameter accepts either the taxonomy slug or its `rest_base`
+(custom taxonomies can register a rest_base that differs from the slug, e.g.
+slug `documentation_category` with rest_base `documentation-categories`).
+All taxonomy tools resolve the identifier through a per-site cached
+`/wp/v2/taxonomies` lookup and hard-error on unknown taxonomies — there is no
+slug fallback. `assign_terms_to_content` derives success from the WordPress
+response (the updated content's `rest_base` field must contain the requested
+term IDs) rather than echoing the request.
+
 #### Multi-Site Support
 All tools accept an optional `site_id` parameter to target specific sites:
 ```json

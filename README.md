@@ -157,6 +157,13 @@ All taxonomy operations use a single `taxonomy` parameter:
 }
 ```
 
+The `taxonomy` parameter accepts either the taxonomy slug or its `rest_base`
+(they can differ for custom taxonomies, e.g. slug `documentation_category`
+with rest_base `documentation-categories`). Tools resolve the identifier via
+`/wp/v2/taxonomies` and error on unknown taxonomies instead of guessing.
+`assign_terms_to_content` verifies the write against the WordPress response
+and reports an error if the terms were not actually saved.
+
 ## Configuration
 
 ### Single Site Configuration

@@ -10,6 +10,7 @@ import { commentTools, commentHandlers } from './comments.js';
 import { sqlQueryTools, sqlQueryHandlers } from './sql-query.js';
 import { siteManagementTools, siteManagementHandlers } from './site-management.js';
 import { contentSummaryTools, contentSummaryHandlers } from './content-summary.js';
+import { featureQueueTools, featureQueueHandlers } from './feature-queue.js';
 
 // Combine all tools
 export const allTools: Tool[] = [
@@ -22,7 +23,8 @@ export const allTools: Tool[] = [
   ...commentTools,              // ~5 tools
   ...sqlQueryTools,             // 1 tool (database queries)
   ...siteManagementTools,       // 3 tools (multi-site support)
-  ...contentSummaryTools        // 1 tool (audit/lookup summary)
+  ...contentSummaryTools,       // 1 tool (audit/lookup summary)
+  ...featureQueueTools          // 4 tools (WP Fusion feature queue)
 ];
 
 // Combine all handlers
@@ -36,5 +38,6 @@ export const toolHandlers = {
   ...commentHandlers,
   ...sqlQueryHandlers,
   ...siteManagementHandlers,
-  ...contentSummaryHandlers
+  ...contentSummaryHandlers,
+  ...featureQueueHandlers
 };

@@ -87,6 +87,14 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - `get_plugin_info`: Get detailed information about a plugin from the repository.
 - **Database Queries:**
 - `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
+- **WP Fusion Feature Queue:**
+- `list_wpf_feature_queue`: List queued work and stale claims.
+- `enqueue_wpf_feature`: Human-controlled enqueue or explicit requeue.
+- `claim_next_wpf_feature`: Atomically claim the lowest-ranked request.
+- `transition_wpf_feature`: Compare-and-set a claimed request's status.
+
+Every feature-queue tool requires an explicit `site_id` and the companion
+WordPress endpoint under `/wp-json/wpf-agent/v1`.
 
 ### **Key Advantages**
 
@@ -396,7 +404,9 @@ WORDPRESS_3_ID=development
 - `WORDPRESS_N_DEFAULT`: Set to `true` to make this the default site (optional, first site is default)
 - `WORDPRESS_N_ALIASES`: Comma-separated aliases for site detection (optional)
 
-The server supports up to 10 sites. When using multi-site configuration, all tools accept an optional `site_id` parameter to target specific sites.
+The server supports up to 10 sites. Most multi-site tools accept an optional
+`site_id`; WP Fusion feature-queue tools require it so mutating calls can never
+fall back to the default site.
 
 ## Using with npx and .env file
 
@@ -415,6 +425,9 @@ WORDPRESS_PASSWORD=wp_app_password
 
 # Optional: Custom SQL query endpoint (default: /mcp/v1/query)
 WORDPRESS_SQL_ENDPOINT=/mcp/v1/query
+
+# Optional: WP Fusion feature queue endpoint (default: /wpf-agent/v1)
+WORDPRESS_FEATURE_QUEUE_ENDPOINT=/wpf-agent/v1
 
 # Optional: Comma-separated list of top-level fields to strip from
 # WordPress REST API responses before they are returned to the MCP
@@ -641,7 +654,8 @@ src/
     ├── comments.ts            # Comment management (~5 tools)
     ├── plugins.ts             # Plugin management (~5 tools)
     ├── plugin-repository.ts   # WordPress.org plugin search (~2 tools)
-    └── sql-query.ts           # Database queries (1 tool)
+    ├── sql-query.ts           # Database queries (1 tool)
+    └── feature-queue.ts       # WP Fusion feature queue (4 tools)
 ```
 
 ### Key Features

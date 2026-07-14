@@ -26,7 +26,9 @@ npm start
 npm run clean
 ```
 
-There is no test script in `package.json`; the repo currently ships no automated test suite. `npm run prepare` runs the build automatically (e.g. on install/publish).
+Run `npm test` for the Vitest suite and `npm run build` for TypeScript. The
+committed lockfile supports reproducible installs with `npm ci`; `npm run
+prepare` also builds automatically during install and publish.
 
 ### Environment Setup
 
@@ -65,6 +67,8 @@ The app password can be generated from WordPress admin panel following the [Appl
 - `WORDPRESS_LOG_LEVEL` — `debug` | `info` | `error` (default `error`). Controls log verbosity (logs go to **stderr**, not a file).
 - `DISABLE_LOGGING=true` — silences all logging.
 - `WORDPRESS_SQL_ENDPOINT` — override the SQL-query endpoint (default `/mcp/v1/query`); see `src/tools/sql-query.ts:95`.
+- `WORDPRESS_FEATURE_QUEUE_ENDPOINT` — override the WP Fusion feature-queue
+  endpoint root (default `/wpf-agent/v1`).
 - `WORDPRESS_CACHE_DURATION` — cache TTL for WordPress lookups.
 - `WORDPRESS_PARALLEL_SEARCH` — toggle parallel content-type search.
 - `UNIFIED_CONTENT_CACHE_DIR` — directory for the unified-content cache.
@@ -98,7 +102,9 @@ The app password can be generated from WordPress admin panel following the [Appl
    - Each WordPress entity (posts, pages, media, etc.) has its own module
    - Each module exports a tools array and a handlers object
    - Tools use Zod schemas for input validation and type safety
-   - The unified content tools (and the `get_site`/`test_site` site-management tools) accept an optional `site_id` parameter for multi-site targeting; other tool modules operate on the default site
+   - Unified content and site-management tools accept an optional `site_id`;
+     WP Fusion feature-queue tools require an explicit `site_id` to prevent
+     writes to the wrong site; other modules use the default site
    - All tools are aggregated in `src/tools/index.ts` (`allTools` / `toolHandlers`)
 
 5. **CLI Launcher (`src/cli.ts`)**:
@@ -136,7 +142,10 @@ export const entityHandlers = {
 
 ### Unified Tool Architecture
 
-The MCP server uses a **unified tool approach** to reduce complexity and tool count (down from ~65 separate per-entity tools). Instead of separate tools for posts, pages, and custom post types, there are unified tools that handle all content types. The server currently registers **41 tools**, aggregated in `src/tools/index.ts:14`.
+The MCP server uses a **unified tool approach** to reduce complexity and tool
+count. Instead of separate tools for posts, pages, and custom post types, there
+are unified tools that handle all content types. The server currently registers
+**48 tools**, aggregated in `src/tools/index.ts`.
 
 #### Unified Content Tools (`unified-content.ts`) — 8 tools
 Handles ALL content types (posts, pages, custom post types) with a single set of tools:
@@ -178,6 +187,12 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 
 #### SQL Query Tool (`sql-query.ts`) — 1 tool
 - `execute_sql_query` — Execute read-only database queries. Requires a custom endpoint on the WordPress side; uses `/mcp/v1/query` by default, overridable via `WORDPRESS_SQL_ENDPOINT`.
+
+#### WP Fusion Feature Queue (`feature-queue.ts`) — 4 tools
+- `list_wpf_feature_queue` — List queue items and stale claims.
+- `enqueue_wpf_feature` — Enqueue or explicitly requeue an approved request.
+- `claim_next_wpf_feature` — Atomically claim the next request.
+- `transition_wpf_feature` — Compare-and-set a claimed request's status.
 
 #### Site Management Tools (`site-management.ts`) — 3 tools
 - `list_sites` — List all configured WordPress sites

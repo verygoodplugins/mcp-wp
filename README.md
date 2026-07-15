@@ -429,6 +429,10 @@ WORDPRESS_SQL_ENDPOINT=/mcp/v1/query
 # Optional: WP Fusion feature queue endpoint (default: /wpf-agent/v1)
 WORDPRESS_FEATURE_QUEUE_ENDPOINT=/wpf-agent/v1
 
+# Optional: expose only these MCP tools from this server process. Unknown or
+# empty explicit allowlists fail startup instead of silently widening access.
+MCP_WP_TOOL_ALLOWLIST=list_wpf_feature_queue,enqueue_wpf_feature,claim_next_wpf_feature,transition_wpf_feature
+
 # Optional: Comma-separated list of top-level fields to strip from
 # WordPress REST API responses before they are returned to the MCP
 # client. Defaults to "yoast_head,yoast_head_json" — read-only schema
@@ -436,6 +440,10 @@ WORDPRESS_FEATURE_QUEUE_ENDPOINT=/wpf-agent/v1
 # LLM. Set to an empty string to disable trimming.
 MCP_WP_STRIP_FIELDS=yoast_head,yoast_head_json
 ```
+
+`MCP_WP_TOOL_ALLOWLIST` is useful when separate MCP processes serve distinct
+roles, such as a narrow feature-queue connection and a documentation-only
+connection. Omit it to expose the complete registry.
 
 ## Response Trimming
 

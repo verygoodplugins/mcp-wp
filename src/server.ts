@@ -5,7 +5,7 @@ dotenv.config(); // Load environment variables from .env first
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { allTools, toolHandlers } from "./tools/index.js";
+import { allTools, selectTools, toolHandlers } from "./tools/index.js";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
@@ -26,8 +26,13 @@ const server = new McpServer(
   },
 );
 
+const enabledTools = selectTools(
+  allTools,
+  process.env.MCP_WP_TOOL_ALLOWLIST,
+);
+
 // Register each tool from our tools list with its corresponding handler
-for (const tool of allTools) {
+for (const tool of enabledTools) {
   const handler = toolHandlers[tool.name as keyof typeof toolHandlers];
   if (!handler) continue;
 
@@ -78,7 +83,7 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     logToFile("WordPress MCP Server running on stdio");
-    logToFile(`Registered ${allTools.length} tools`);
+    logToFile(`Registered ${enabledTools.length} tools`);
   } catch (error: any) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;

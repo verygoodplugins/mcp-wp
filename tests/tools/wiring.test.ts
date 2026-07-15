@@ -1,7 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { allTools, toolHandlers } from '../../src/tools/index.js';
+import { allTools, selectTools, toolHandlers } from '../../src/tools/index.js';
 
 describe('tool registry wiring', () => {
+	it('can expose an explicit ordered allowlist for focused MCP sessions', () => {
+		const selected = selectTools(
+			allTools,
+			'list_content,list_wpf_feature_queue,claim_next_wpf_feature',
+		);
+
+		expect(selected.map((tool) => tool.name)).toEqual([
+			'list_content',
+			'list_wpf_feature_queue',
+			'claim_next_wpf_feature',
+		]);
+	});
+
+	it('fails closed when an allowlist names an unavailable tool', () => {
+		expect(() => selectTools(allTools, 'list_content,missing_tool')).toThrow(
+			'Unknown MCP_WP_TOOL_ALLOWLIST tools: missing_tool',
+		);
+	});
+
+	it('keeps the full registry when no allowlist is configured', () => {
+		expect(selectTools(allTools, undefined)).toBe(allTools);
+	});
+
   it('exposes at least one tool', () => {
     expect(allTools.length).toBeGreaterThan(0);
   });

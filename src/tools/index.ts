@@ -27,6 +27,37 @@ export const allTools: Tool[] = [
   ...featureQueueTools          // 4 tools (WP Fusion feature queue)
 ];
 
+/**
+ * Select the tool registry exposed by one focused MCP process.
+ *
+ * An undefined allowlist preserves the default full registry. An explicit
+ * allowlist fails closed if it is empty or contains an unknown name.
+ */
+export function selectTools(tools: Tool[], rawAllowlist?: string): Tool[] {
+  if (rawAllowlist === undefined) {
+    return tools;
+  }
+
+  const requested = new Set(
+    rawAllowlist
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+
+  if (requested.size === 0) {
+    throw new Error('MCP_WP_TOOL_ALLOWLIST must name at least one tool.');
+  }
+
+  const knownNames = new Set(tools.map((tool) => tool.name));
+  const unknown = Array.from(requested).filter((name) => !knownNames.has(name));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown MCP_WP_TOOL_ALLOWLIST tools: ${unknown.join(', ')}`);
+  }
+
+  return tools.filter((tool) => requested.has(tool.name));
+}
+
 // Combine all handlers
 export const toolHandlers = {
   ...unifiedContentHandlers,

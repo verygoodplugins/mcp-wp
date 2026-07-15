@@ -46,7 +46,10 @@
     "rimraf": "^5.0.5",
     "tsx": "^4.7.1",
     "typescript": "^5.3.3",
-    "vitest": "^2.1.9"
+    "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "vite": "6.4.3"
   },
   "publishConfig": {
     "access": "public"

@@ -13,6 +13,8 @@ const queueStatusSchema = z.enum([
 
 const queueItemSchema = z.object({
   id: z.number().int().positive(),
+  title: z.string().min(1),
+  content: z.string(),
   status: queueStatusSchema,
   rank: z.number().int().nullable(),
   run_id: z.string().nullable(),
@@ -88,7 +90,7 @@ function queueTool(name: string, description: string, schema: z.ZodObject<any>):
 export const featureQueueTools: Tool[] = [
   queueTool(
     'list_wpf_feature_queue',
-    'List WP Fusion feature queue items and optionally report stale in-progress claims.',
+    'List self-contained WP Fusion feature requests and optionally report stale claims.',
     listQueueSchema,
   ),
   queueTool(
@@ -98,7 +100,7 @@ export const featureQueueTools: Tool[] = [
   ),
   queueTool(
     'claim_next_wpf_feature',
-    'Atomically claim the lowest-ranked queued WP Fusion feature request.',
+    'Atomically claim the lowest-ranked request and return its title and full specification.',
     claimFeatureSchema,
   ),
   queueTool(

@@ -88,9 +88,10 @@ Handles ALL taxonomies (categories, tags, custom taxonomies) with a single set o
 - **Database Queries:**
 - `execute_sql_query`: Execute read-only SQL queries against the WordPress database (requires custom endpoint setup).
 - **WP Fusion Feature Queue:**
-- `list_wpf_feature_queue`: List queued work and stale claims.
+- `list_wpf_feature_queue`: List self-contained requests and stale claims.
 - `enqueue_wpf_feature`: Human-controlled enqueue or explicit requeue.
-- `claim_next_wpf_feature`: Atomically claim the lowest-ranked request.
+- `claim_next_wpf_feature`: Atomically claim the lowest-ranked request and
+  return its title and full specification.
 - `transition_wpf_feature`: Compare-and-set a claimed request's status.
 
 Every feature-queue tool requires an explicit `site_id` and the companion

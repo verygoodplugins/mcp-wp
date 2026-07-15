@@ -20,6 +20,8 @@ const mockedRequest = vi.mocked(axios.request);
 const mockedGetSite = vi.mocked(siteManager.getSite);
 const queueItem = {
   id: 42,
+  title: 'Fluent Affiliate tags-only canary',
+  content: 'Apply and remove configurable tags for affiliate lifecycle statuses.',
   status: 'queued',
   rank: 3,
   run_id: null,
@@ -157,6 +159,19 @@ describe('WP Fusion feature queue tools', () => {
     mockedRequest.mockResolvedValue({
       data: { item: { id: 42, status: 'queued' } },
     });
+
+    const result = await featureQueueHandlers.claim_next_wpf_feature({
+      site_id: 'production',
+      claimed_by: 'claude-wpf-feature-pipeline',
+    });
+
+    expect(result.toolResult.isError).toBe(true);
+    expect(result.toolResult.content[0].text).toContain('invalid queue response');
+  });
+
+  it('rejects queue items that omit the feature request title or content', async () => {
+    const { title: _title, content: _content, ...queueStateOnly } = queueItem;
+    mockedRequest.mockResolvedValue({ data: { item: queueStateOnly } });
 
     const result = await featureQueueHandlers.claim_next_wpf_feature({
       site_id: 'production',
